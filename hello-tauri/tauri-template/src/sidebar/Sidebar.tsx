@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActionIcon, Box, Flex, Paper } from "@mantine/core";
+import { ActionIcon, Box, Flex } from "@mantine/core";
 import { IconMenu2 } from "@tabler/icons-react";
 import { GeneralSettings } from "./GeneralSettings";
 
@@ -35,6 +35,7 @@ export function Sidebar() {
       >
         <ActionIcon
           variant={activeSection === "general" ? "filled" : "subtle"}
+          color={activeSection === "general" ? undefined : "gray"}
           size="lg"
           onClick={() => handleSectionClick("general")}
         >
@@ -44,9 +45,9 @@ export function Sidebar() {
 
       {/* Expandable content area */}
       {activeSection && (
-        <Paper withBorder style={{ minWidth: '250px' }}>
+        <Box style={{ minWidth: '250px', borderRight: '1px solid var(--mantine-color-default-border)' }}>
           {renderContent()}
-        </Paper>
+        </Box>
       )}
     </Flex>
   );
