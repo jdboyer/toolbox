@@ -4,12 +4,12 @@ import { Sidebar } from "./sidebar";
 
 function App() {
   return (
-    <Flex p="md" gap="md" style={{ height: '100vh' }}>
+    <Flex style={{ height: '100vh' }}>
       <Box>
         <Sidebar />
       </Box>
 
-      <Box style={{ flex: 1 }}>
+      <Box style={{ flex: 1 }} p="md">
         <Sampler />
       </Box>
     </Flex>
