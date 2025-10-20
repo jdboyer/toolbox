@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Box, Combobox, Group, Progress, Stack, Text, useCombobox, InputBase } from "@mantine/core";
+import { Box, Combobox, Flex, Group, Progress, Stack, Text, useCombobox, InputBase } from "@mantine/core";
 import { invoke } from "@tauri-apps/api/core";
+import { Sampler } from "./sampler";
 
 interface AudioDevice {
   name: string;
@@ -134,71 +135,77 @@ function App() {
   ];
 
   return (
-    <Box p="md">
-      <Stack gap="md">
-        <Box style={{ width: '180px' }}>
-          <Group align="center" justify="space-between" mb={5} wrap="nowrap">
-            <Text size="sm" fw={500} style={{ whiteSpace: 'nowrap' }}>Primary</Text>
-            <Progress value={primaryVolume} size="sm" style={{ width: '80px', marginLeft: 'auto' }} />
-          </Group>
-          <Combobox
-            store={primaryCombobox}
-            onOptionSubmit={(val) => {
-              setPrimaryDevice(val === "none" ? null : val);
-              primaryCombobox.closeDropdown();
-            }}
-          >
-            <Combobox.Target>
-              <InputBase
-                component="button"
-                type="button"
-                pointer
-                rightSection={<Combobox.Chevron />}
-                onClick={() => primaryCombobox.toggleDropdown()}
-                rightSectionPointerEvents="none"
-              >
-                {primaryDeviceName}
-              </InputBase>
-            </Combobox.Target>
+    <Flex p="md" gap="md" style={{ height: '100vh' }}>
+      <Box>
+        <Stack gap="md">
+          <Box style={{ width: '180px' }}>
+            <Group align="center" justify="space-between" mb={5} wrap="nowrap">
+              <Text size="sm" fw={500} style={{ whiteSpace: 'nowrap' }}>Primary</Text>
+              <Progress value={primaryVolume} size="sm" style={{ width: '80px', marginLeft: 'auto' }} />
+            </Group>
+            <Combobox
+              store={primaryCombobox}
+              onOptionSubmit={(val) => {
+                setPrimaryDevice(val === "none" ? null : val);
+                primaryCombobox.closeDropdown();
+              }}
+            >
+              <Combobox.Target>
+                <InputBase
+                  component="button"
+                  type="button"
+                  pointer
+                  rightSection={<Combobox.Chevron />}
+                  onClick={() => primaryCombobox.toggleDropdown()}
+                  rightSectionPointerEvents="none"
+                >
+                  {primaryDeviceName}
+                </InputBase>
+              </Combobox.Target>
 
-            <Combobox.Dropdown>
-              <Combobox.Options>{primaryOptions}</Combobox.Options>
-            </Combobox.Dropdown>
-          </Combobox>
-        </Box>
+              <Combobox.Dropdown>
+                <Combobox.Options>{primaryOptions}</Combobox.Options>
+              </Combobox.Dropdown>
+            </Combobox>
+          </Box>
 
-        <Box style={{ width: '180px' }}>
-          <Group align="center" justify="space-between" mb={5} wrap="nowrap">
-            <Text size="sm" fw={500} style={{ whiteSpace: 'nowrap' }}>Secondary</Text>
-            <Progress value={secondaryVolume} size="sm" style={{ width: '80px', marginLeft: 'auto' }} />
-          </Group>
-          <Combobox
-            store={secondaryCombobox}
-            onOptionSubmit={(val) => {
-              setSecondaryDevice(val === "none" ? null : val);
-              secondaryCombobox.closeDropdown();
-            }}
-          >
-            <Combobox.Target>
-              <InputBase
-                component="button"
-                type="button"
-                pointer
-                rightSection={<Combobox.Chevron />}
-                onClick={() => secondaryCombobox.toggleDropdown()}
-                rightSectionPointerEvents="none"
-              >
-                {secondaryDeviceName}
-              </InputBase>
-            </Combobox.Target>
+          <Box style={{ width: '180px' }}>
+            <Group align="center" justify="space-between" mb={5} wrap="nowrap">
+              <Text size="sm" fw={500} style={{ whiteSpace: 'nowrap' }}>Secondary</Text>
+              <Progress value={secondaryVolume} size="sm" style={{ width: '80px', marginLeft: 'auto' }} />
+            </Group>
+            <Combobox
+              store={secondaryCombobox}
+              onOptionSubmit={(val) => {
+                setSecondaryDevice(val === "none" ? null : val);
+                secondaryCombobox.closeDropdown();
+              }}
+            >
+              <Combobox.Target>
+                <InputBase
+                  component="button"
+                  type="button"
+                  pointer
+                  rightSection={<Combobox.Chevron />}
+                  onClick={() => secondaryCombobox.toggleDropdown()}
+                  rightSectionPointerEvents="none"
+                >
+                  {secondaryDeviceName}
+                </InputBase>
+              </Combobox.Target>
 
-            <Combobox.Dropdown>
-              <Combobox.Options>{secondaryOptions}</Combobox.Options>
-            </Combobox.Dropdown>
-          </Combobox>
-        </Box>
-      </Stack>
-    </Box>
+              <Combobox.Dropdown>
+                <Combobox.Options>{secondaryOptions}</Combobox.Options>
+              </Combobox.Dropdown>
+            </Combobox>
+          </Box>
+        </Stack>
+      </Box>
+
+      <Box style={{ flex: 1 }}>
+        <Sampler />
+      </Box>
+    </Flex>
   );
 }
 
