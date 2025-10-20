@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is a personal toolbox repository containing reusable components and templates. Currently contains a Tauri application template.
+This is a personal toolbox repository containing reusable components and templates. Currently contains a Tauri application template with audio monitoring capabilities.
 
 ## Project Structure
 
@@ -12,6 +12,10 @@ This is a personal toolbox repository containing reusable components and templat
 toolbox/
 ├── hello-tauri/tauri-template/    # Tauri + React + TypeScript template
 │   ├── src/                        # React frontend (TypeScript + Vite)
+│   │   ├── sampler/               # Audio sampler components
+│   │   ├── sidebar/               # Sidebar UI components
+│   │   ├── App.tsx                # Main app layout (Flex layout)
+│   │   └── main.tsx               # Entry point with Mantine provider
 │   ├── src-tauri/                  # Rust backend
 │   │   ├── src/
 │   │   │   ├── main.rs            # Application entry point
@@ -25,21 +29,30 @@ toolbox/
 
 The Tauri template follows a hybrid architecture:
 
-- **Frontend**: React 18 + TypeScript + Vite
-  - Entry point: `src/main.tsx`
-  - Main component: `src/App.tsx`
-  - Uses Tauri API v2 for frontend-backend communication
+- **Frontend**: React 18 + TypeScript + Vite + Mantine UI
+  - Entry point: `src/main.tsx` (wraps App in MantineProvider)
+  - Main component: `src/App.tsx` (Flex layout with Sidebar and Sampler)
+  - UI library: Mantine v7 with PostCSS preset for styling
+  - Icons: Tabler Icons React
+  - Uses Tauri API v2 for frontend-backend communication via `invoke()`
 
-- **Backend**: Rust + Tauri v2
+- **Backend**: Rust + Tauri v2 + Audio Processing
   - `lib.rs` contains the main application logic and Tauri command handlers
   - `main.rs` is a minimal entry point that calls `lib.rs::run()`
   - Commands are registered using `tauri::generate_handler![]` macro
   - Uses staticlib, cdylib, and rlib crate types for cross-platform compatibility
+  - Audio capabilities:
+    - `cpal` library for cross-platform audio device access
+    - `AudioState` struct with shared state using `Arc<Mutex<f32>>`
+    - Supports dual-channel monitoring (primary/secondary)
+    - RMS volume calculation for real-time audio level monitoring
+  - Async runtime: Tokio with multi-threaded runtime
 
 - **Frontend-Backend Communication**:
   - Frontend invokes Rust functions using `invoke()` from `@tauri-apps/api/core`
   - Backend functions are decorated with `#[tauri::command]` macro
-  - Example: `greet` command demonstrates bi-directional communication
+  - Current commands: `get_audio_devices`, `start_monitoring`, `stop_monitoring`, `get_volume`
+  - State management via Tauri's `.manage()` for shared AudioState
 
 ## Development Commands
 
@@ -82,10 +95,35 @@ The Tauri template follows a hybrid architecture:
 
 1. Define command function in `src-tauri/src/lib.rs` with `#[tauri::command]` attribute
 2. Add function name to `tauri::generate_handler![]` macro in `lib.rs::run()`
-3. Invoke from frontend using `invoke("command_name", { args })`
+3. If the command needs shared state, add it to the state struct and pass as `State<T>` parameter
+4. Invoke from frontend using `invoke("command_name", { args })` from `@tauri-apps/api/core`
+
+Example pattern for stateful commands:
+```rust
+#[tauri::command]
+fn my_command(param: String, state: State<MyState>) -> Result<ReturnType, String> {
+    // Implementation
+}
+```
+
+## Audio Monitoring Architecture
+
+The template includes a complete audio monitoring system:
+
+- **Device Enumeration**: `get_audio_devices()` returns list of available input devices with unique IDs
+- **Stream Management**: `start_monitoring()` creates audio input streams using cpal
+  - Handles multiple sample formats (F32, I16, U16)
+  - Streams are kept alive using `std::mem::forget()` to prevent premature drop
+  - Volume data stored in shared `Arc<Mutex<f32>>` state
+- **Volume Calculation**: RMS (Root Mean Square) algorithm for real-time audio level measurement
+- **Dual Channel Support**: Independent primary/secondary volume monitoring
+- **State Pattern**: `AudioState` struct managed by Tauri, accessible across all commands
+
+Note: Audio streams are currently forgotten after start. Consider implementing proper stream lifecycle management for production use.
 
 ## Platform Considerations
 
 - Windows builds use `windows_subsystem = "windows"` to prevent console window in release mode
 - Cross-platform icons defined in `src-tauri/icons/` directory
 - WebView2 is used on Windows (dependencies visible in build artifacts)
+- Audio device access may require permissions on some platforms
