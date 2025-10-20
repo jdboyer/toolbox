@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActionIcon, Box, Flex, Paper, Stack } from "@mantine/core";
+import { ActionIcon, Box, Flex, Paper } from "@mantine/core";
 import { IconMenu2 } from "@tabler/icons-react";
 import { GeneralSettings } from "./GeneralSettings";
 
@@ -24,14 +24,13 @@ export function Sidebar() {
   return (
     <Flex style={{ height: '100%' }}>
       {/* Icon button column */}
-      <Stack
-        gap="xs"
-        p="xs"
+      <Box
         style={{
           borderRight: '1px solid var(--mantine-color-default-border)',
-          paddingLeft: 0,
-          paddingTop: 0,
-          paddingBottom: 0
+          padding: 'var(--mantine-spacing-xs)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--mantine-spacing-xs)'
         }}
       >
         <ActionIcon
@@ -41,7 +40,7 @@ export function Sidebar() {
         >
           <IconMenu2 size={18} />
         </ActionIcon>
-      </Stack>
+      </Box>
 
       {/* Expandable content area */}
       {activeSection && (

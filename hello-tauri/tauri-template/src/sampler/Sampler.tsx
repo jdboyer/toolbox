@@ -1,4 +1,4 @@
-import { Paper, Stack, Group, ActionIcon, Text } from "@mantine/core";
+import { Stack, Group, ActionIcon, Text } from "@mantine/core";
 import { IconFolder } from "@tabler/icons-react";
 import { useState } from "react";
 import { TimeDomainView } from "./TimeDomainView";
@@ -20,19 +20,17 @@ export function Sampler() {
   };
 
   return (
-    <Paper p="md" withBorder style={{ height: '100%' }}>
-      <Stack style={{ width: '100%' }} gap="md">
-        <Group>
-          <ActionIcon onClick={handleSelectFile} variant="default" size="lg">
-            <IconFolder size={18} />
-          </ActionIcon>
-          <Text>{getFileName()}</Text>
-        </Group>
+    <Stack style={{ width: '100%', height: '100%' }} gap="md">
+      <Group>
+        <ActionIcon onClick={handleSelectFile} variant="default" size="lg">
+          <IconFolder size={18} />
+        </ActionIcon>
+        <Text>{getFileName()}</Text>
+      </Group>
 
-        <TimeDomainView />
+      <TimeDomainView />
 
-        <FrequencyDomainView />
-      </Stack>
-    </Paper>
+      <FrequencyDomainView />
+    </Stack>
   );
 }
