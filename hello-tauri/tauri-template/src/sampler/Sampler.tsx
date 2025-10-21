@@ -8,6 +8,10 @@ import { FrequencyDomainView } from "./FrequencyDomainView";
 export function Sampler() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
+  // Time axis state (in milliseconds)
+  const [timeRange, setTimeRange] = useState(4000); // Total time range visible (ms)
+  const [timeOffset, setTimeOffset] = useState(0); // Time offset from 0 (ms)
+
   const handleSelectFile = async () => {
     console.log("handleSelectFile called");
     try {
@@ -45,9 +49,17 @@ export function Sampler() {
         <Text>{getFileName()}</Text>
       </Group>
 
-      <TimeDomainView />
+      <TimeDomainView
+        timeRange={timeRange}
+        timeOffset={timeOffset}
+        onTimeRangeChange={setTimeRange}
+        onTimeOffsetChange={setTimeOffset}
+      />
 
-      <FrequencyDomainView />
+      <FrequencyDomainView
+        timeRange={timeRange}
+        timeOffset={timeOffset}
+      />
     </Stack>
   );
 }

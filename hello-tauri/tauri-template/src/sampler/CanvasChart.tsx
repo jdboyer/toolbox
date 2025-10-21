@@ -63,29 +63,44 @@ export function CanvasChart({
     if (onRender) {
       onRender(ctx, width, height);
     } else {
-      // Default rendering: gradient with grid
+      // Default rendering: gradient with grid that shows the time range
       const gradient = ctx.createLinearGradient(0, 0, width, height);
       gradient.addColorStop(0, "#228be6");
       gradient.addColorStop(1, "#15aabf");
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, width, height);
 
+      // Draw grid based on chart coordinates
       ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
       ctx.lineWidth = 1;
-      for (let i = 0; i < width; i += 50) {
+
+      // Vertical grid lines every 500ms in chart coordinates
+      const startTime = canvasToChart(0, xTransform);
+      const endTime = canvasToChart(width, xTransform);
+      const timeStep = 500; // 500ms
+
+      for (let time = Math.ceil(startTime / timeStep) * timeStep; time <= endTime; time += timeStep) {
+        const x = chartToCanvas(time, xTransform);
         ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, height);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
         ctx.stroke();
       }
-      for (let i = 0; i < height; i += 50) {
+
+      // Horizontal grid lines every 0.25 units in chart coordinates
+      const topValue = canvasToChart(0, yTransform);
+      const bottomValue = canvasToChart(height, yTransform);
+      const valueStep = 0.25;
+
+      for (let value = Math.ceil(bottomValue / valueStep) * valueStep; value <= topValue; value += valueStep) {
+        const y = chartToCanvas(value, yTransform);
         ctx.beginPath();
-        ctx.moveTo(0, i);
-        ctx.lineTo(width, i);
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
         ctx.stroke();
       }
     }
-  }, [width, height, onRender]);
+  }, [width, height, onRender, xTransform, yTransform]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const container = containerRef.current;

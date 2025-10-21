@@ -1,30 +1,73 @@
-import { Card, Group, Text } from "@mantine/core";
+import { Card, Group, Text, Stack, AngleSlider } from "@mantine/core";
 import { CanvasChart } from "./CanvasChart.tsx";
 
-export function TimeDomainView() {
+interface TimeDomainViewProps {
+  timeRange: number; // Total time range in ms
+  timeOffset: number; // Time offset in ms
+  onTimeRangeChange: (range: number) => void;
+  onTimeOffsetChange: (offset: number) => void;
+}
+
+export function TimeDomainView({
+  timeRange,
+  timeOffset,
+  onTimeRangeChange,
+  onTimeOffsetChange,
+}: TimeDomainViewProps) {
   // Canvas dimensions
   const canvasWidth = 800;
   const canvasHeight = 200;
 
   // Coordinate system transforms
-  // X-axis: (0px, 0px) = (-1000ms, 1 unit) and (800px, 200px) = (3000ms, -1 unit)
+  // X-axis: Time range from timeOffset to timeOffset + timeRange
   // For x: chartValue = slope * canvasPx + offset
-  // -1000 = slope * 0 + offset -> offset = -1000
-  // 3000 = slope * 800 + offset -> 3000 = slope * 800 - 1000 -> slope = 5
-  const xTransform = { slope: 5, offset: -1000 };
+  // timeOffset = slope * 0 + offset -> offset = timeOffset
+  // (timeOffset + timeRange) = slope * canvasWidth + offset
+  // -> slope = timeRange / canvasWidth
+  const xTransform = {
+    slope: timeRange / canvasWidth,
+    offset: timeOffset
+  };
 
   // For y: chartValue = slope * canvasPx + offset
   // 1 = slope * 0 + offset -> offset = 1
   // -1 = slope * 200 + offset -> -1 = slope * 200 + 1 -> slope = -0.01
   const yTransform = { slope: -0.01, offset: 1 };
 
+  // Convert time range to angle (0-360 degrees)
+  // Map 1000ms to 10000ms -> 0 to 360 degrees
+  const rangeToAngle = (range: number) => ((range - 1000) / 9000) * 360;
+  const angleToRange = (angle: number) => (angle / 360) * 9000 + 1000;
+
+  // Convert time offset to angle (0-360 degrees)
+  // Map -5000ms to 5000ms -> 0 to 360 degrees
+  const offsetToAngle = (offset: number) => ((offset + 5000) / 10000) * 360;
+  const angleToOffset = (angle: number) => (angle / 360) * 10000 - 5000;
+
   return (
     <Card withBorder>
       <Card.Section p="md">
         <Group>
-          <Text>Control A</Text>
-          <Text>Control B</Text>
-          <Text>Control C</Text>
+          <Stack align="center" gap="xs">
+            <Text size="sm">Zoom</Text>
+            <AngleSlider
+              value={rangeToAngle(timeRange)}
+              onChange={(angle) => onTimeRangeChange(angleToRange(angle))}
+              size={80}
+              color="blue"
+              formatLabel={(angle) => `${Math.round(angleToRange(angle))}ms`}
+            />
+          </Stack>
+          <Stack align="center" gap="xs">
+            <Text size="sm">Offset</Text>
+            <AngleSlider
+              value={offsetToAngle(timeOffset)}
+              onChange={(angle) => onTimeOffsetChange(angleToOffset(angle))}
+              size={80}
+              color="green"
+              formatLabel={(angle) => `${Math.round(angleToOffset(angle))}ms`}
+            />
+          </Stack>
         </Group>
       </Card.Section>
       <Card.Section>
