@@ -156,6 +156,7 @@ fn calculate_rms(samples: &[f32]) -> f32 {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AudioState::default())
         .invoke_handler(tauri::generate_handler![
             get_audio_devices,

@@ -6,6 +6,7 @@
     "npm:@tabler/icons-react@3": "3.35.0_react@18.3.1",
     "npm:@tauri-apps/api@2": "2.9.0",
     "npm:@tauri-apps/cli@2": "2.9.0",
+    "npm:@tauri-apps/plugin-dialog@2": "2.4.0",
     "npm:@tauri-apps/plugin-opener@2": "2.5.0",
     "npm:@types/react-dom@^18.3.1": "18.3.7_@types+react@18.3.26",
     "npm:@types/react@^18.3.1": "18.3.26",
@@ -446,6 +447,12 @@
         "@tauri-apps/cli-win32-arm64-msvc",
         "@tauri-apps/cli-win32-ia32-msvc",
         "@tauri-apps/cli-win32-x64-msvc"
+      ]
+    },
+    "@tauri-apps/plugin-dialog@2.4.0": {
+      "integrity": "sha512-OvXkrEBfWwtd8tzVCEXIvRfNEX87qs2jv6SqmVPiHcJjBhSF/GUvjqUNIDmKByb5N8nvDqVUM7+g1sXwdC/S9w==",
+      "dependencies": [
+        "@tauri-apps/api"
       ]
     },
     "@tauri-apps/plugin-opener@2.5.0": {
@@ -895,6 +902,7 @@
         "npm:@tabler/icons-react@3",
         "npm:@tauri-apps/api@2",
         "npm:@tauri-apps/cli@2",
+        "npm:@tauri-apps/plugin-dialog@2",
         "npm:@tauri-apps/plugin-opener@2",
         "npm:@types/react-dom@^18.3.1",
         "npm:@types/react@^18.3.1",

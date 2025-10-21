@@ -35,6 +35,7 @@ The Tauri template follows a hybrid architecture:
   - UI library: Mantine v7 with PostCSS preset for styling
   - Icons: Tabler Icons React
   - Uses Tauri API v2 for frontend-backend communication via `invoke()`
+  - Installed plugins: `tauri-plugin-opener`, `tauri-plugin-dialog`
 
 - **Backend**: Rust + Tauri v2 + Audio Processing
   - `lib.rs` contains the main application logic and Tauri command handlers
@@ -86,10 +87,64 @@ The Tauri template follows a hybrid architecture:
   - `beforeDevCommand`: Uses Deno task runner instead of npm
   - `beforeBuildCommand`: Uses Deno for production builds
   - Library name uses `_lib` suffix to avoid Windows naming conflicts with binary
+  - Window label set to `"main"` for capability-based permissions
+  - Plugin permissions defined under `app.security.capabilities`
 
 - **`Cargo.toml`**: Rust dependencies and crate configuration
   - Multiple crate types (`staticlib`, `cdylib`, `rlib`) for platform compatibility
   - Uses Tauri v2 and serde for serialization
+
+## Debugging Tauri Applications
+
+- **Frontend Console**: Right-click in the app window → "Inspect" → "Console" tab (shows React/JS logs)
+- **Backend Console**: Terminal where `cargo tauri dev` is running (shows Rust logs)
+- DevTools automatically open in development mode for debugging frontend issues
+
+## Adding New Tauri Plugins
+
+Tauri v2 uses a capability-based permission system. To add a new plugin:
+
+1. **Add dependencies**:
+   - Add `tauri-plugin-<name>` to `src-tauri/Cargo.toml`
+   - Add `@tauri-apps/plugin-<name>` to `package.json`
+   - Run `deno install` to install frontend dependencies
+
+2. **Register plugin** in `src-tauri/src/lib.rs`:
+   ```rust
+   tauri::Builder::default()
+       .plugin(tauri_plugin_<name>::init())
+       // ...
+   ```
+
+3. **Configure permissions** in `src-tauri/tauri.conf.json`:
+   - Ensure the main window has a `label` (e.g., `"label": "main"`)
+   - Add capabilities under `app.security.capabilities`:
+   ```json
+   "capabilities": [
+     {
+       "identifier": "main-capability",
+       "description": "Capability for the main window",
+       "windows": ["main"],
+       "permissions": [
+         "core:default",
+         "plugin-name:allow-command"
+       ]
+     }
+   ]
+   ```
+
+4. **Use in frontend**:
+   ```typescript
+   import { command } from "@tauri-apps/plugin-name";
+   const result = await command();
+   ```
+
+**Example: Dialog Plugin**
+- Dependencies: `tauri-plugin-dialog` + `@tauri-apps/plugin-dialog`
+- Permissions: `dialog:allow-open`, `dialog:allow-save`
+- Usage: `import { open } from "@tauri-apps/plugin-dialog"`
+
+**Important**: Configuration changes require restarting the dev server.
 
 ## Adding New Tauri Commands
 
