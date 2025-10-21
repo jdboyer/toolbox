@@ -1,45 +1,22 @@
 import { Card, Group, Text } from "@mantine/core";
-import { useEffect, useRef } from "react";
+import { CanvasChart } from "./CanvasChart.tsx";
 
 export function TimeDomainView() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Canvas dimensions
+  const canvasWidth = 800;
+  const canvasHeight = 200;
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  // Coordinate system transforms
+  // X-axis: (0px, 0px) = (-1000ms, 1 unit) and (800px, 200px) = (3000ms, -1 unit)
+  // For x: chartValue = slope * canvasPx + offset
+  // -1000 = slope * 0 + offset -> offset = -1000
+  // 3000 = slope * 800 + offset -> 3000 = slope * 800 - 1000 -> slope = 5
+  const xTransform = { slope: 5, offset: -1000 };
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    // Set canvas size to match display size
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = rect.height * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-
-    // Draw a gradient pattern to visualize the canvas
-    const gradient = ctx.createLinearGradient(0, 0, rect.width, rect.height);
-    gradient.addColorStop(0, "#228be6");
-    gradient.addColorStop(1, "#15aabf");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, rect.width, rect.height);
-
-    // Draw a grid pattern
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-    ctx.lineWidth = 1;
-    for (let i = 0; i < rect.width; i += 50) {
-      ctx.beginPath();
-      ctx.moveTo(i, 0);
-      ctx.lineTo(i, rect.height);
-      ctx.stroke();
-    }
-    for (let i = 0; i < rect.height; i += 50) {
-      ctx.beginPath();
-      ctx.moveTo(0, i);
-      ctx.lineTo(rect.width, i);
-      ctx.stroke();
-    }
-  }, []);
+  // For y: chartValue = slope * canvasPx + offset
+  // 1 = slope * 0 + offset -> offset = 1
+  // -1 = slope * 200 + offset -> -1 = slope * 200 + 1 -> slope = -0.01
+  const yTransform = { slope: -0.01, offset: 1 };
 
   return (
     <Card withBorder>
@@ -51,9 +28,12 @@ export function TimeDomainView() {
         </Group>
       </Card.Section>
       <Card.Section>
-        <canvas
-          ref={canvasRef}
-          style={{ width: "100%", height: "300px", display: "block" }}
+        <CanvasChart
+          width={canvasWidth}
+          height={canvasHeight}
+          xTransform={xTransform}
+          yTransform={yTransform}
+          xOffset={0}
         />
       </Card.Section>
     </Card>
