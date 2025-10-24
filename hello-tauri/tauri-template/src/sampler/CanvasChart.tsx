@@ -14,6 +14,9 @@ interface CanvasChartProps {
   xOffset?: number; // Offset in chart data coordinates (default 0)
   onRender?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
   renderTooltip?: (chartX: number, chartY: number) => React.ReactNode; // Custom tooltip renderer
+  enableDragSelection?: boolean; // Enable drag to select rectangle
+  onRectangleSelect?: (startX: number, startY: number, endX: number, endY: number) => void; // Called when rectangle selection is complete (in chart coordinates)
+  onDoubleClick?: (chartX: number, chartY: number) => void; // Called when double-clicking on the canvas (in chart coordinates)
 }
 
 export function CanvasChart({
@@ -24,10 +27,19 @@ export function CanvasChart({
   xOffset = 0,
   onRender,
   renderTooltip,
+  enableDragSelection = false,
+  onRectangleSelect,
+  onDoubleClick,
 }: CanvasChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [dragEnd, setDragEnd] = useState<{ x: number; y: number } | null>(
     null,
   );
 
@@ -110,6 +122,23 @@ export function CanvasChart({
     }
   }, [width, height, onRender, xTransform, yTransform]);
 
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!enableDragSelection) return;
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+
+    // Adjust for canvas offset
+    const adjustedCanvasX = canvasX - canvasXOffset;
+
+    setDragStart({ x: adjustedCanvasX, y: canvasY });
+    setDragEnd(null);
+  };
+
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const container = containerRef.current;
     if (!container) return;
@@ -122,10 +151,70 @@ export function CanvasChart({
     const adjustedCanvasX = canvasX - canvasXOffset;
 
     setMousePos({ x: adjustedCanvasX, y: canvasY });
+
+    // Update drag end position if dragging
+    if (enableDragSelection && dragStart) {
+      setDragEnd({ x: adjustedCanvasX, y: canvasY });
+    }
+  };
+
+  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!enableDragSelection || !dragStart) return;
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+
+    // Adjust for canvas offset
+    const adjustedCanvasX = canvasX - canvasXOffset;
+
+    // Convert to chart coordinates
+    const startChartX = canvasToChart(dragStart.x, xTransform);
+    const startChartY = canvasToChart(dragStart.y, yTransform);
+    const endChartX = canvasToChart(adjustedCanvasX, xTransform);
+    const endChartY = canvasToChart(canvasY, yTransform);
+
+    // Call callback with rectangle coordinates
+    if (onRectangleSelect) {
+      onRectangleSelect(startChartX, startChartY, endChartX, endChartY);
+    }
+
+    // Clear drag state
+    setDragStart(null);
+    setDragEnd(null);
   };
 
   const handleMouseLeave = () => {
     setMousePos(null);
+    // Clear drag on mouse leave
+    if (enableDragSelection) {
+      setDragStart(null);
+      setDragEnd(null);
+    }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!onDoubleClick) return;
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+
+    // Adjust for canvas offset
+    const adjustedCanvasX = canvasX - canvasXOffset;
+
+    // Convert to chart coordinates
+    const chartX = canvasToChart(adjustedCanvasX, xTransform);
+    const chartY = canvasToChart(canvasY, yTransform);
+
+    // Call callback with chart coordinates
+    onDoubleClick(chartX, chartY);
   };
 
   return (
@@ -136,10 +225,13 @@ export function CanvasChart({
         height: height,
         overflow: "hidden",
         position: "relative",
-        cursor: "crosshair",
+        cursor: enableDragSelection ? "crosshair" : "default",
       }}
+      onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
+      onDoubleClick={handleDoubleClick}
     >
       <canvas
         ref={canvasRef}
@@ -150,7 +242,22 @@ export function CanvasChart({
           top: 0,
         }}
       />
-      {mousePos && (
+      {/* Drag selection rectangle overlay */}
+      {enableDragSelection && dragStart && dragEnd && (
+        <Box
+          style={{
+            position: "absolute",
+            left: Math.min(dragStart.x, dragEnd.x),
+            top: Math.min(dragStart.y, dragEnd.y),
+            width: Math.abs(dragEnd.x - dragStart.x),
+            height: Math.abs(dragEnd.y - dragStart.y),
+            backgroundColor: "rgba(255, 255, 255, 0.05)",
+            border: "1px solid rgba(255, 255, 255, 0.25)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
+      {mousePos && !dragStart && (
         <Box
           style={{
             position: "absolute",

@@ -114,6 +114,8 @@ export function Sampler({ color0, color1, color2, color3, color4 }: SamplerProps
           color2={color2}
           color3={color3}
           color4={color4}
+          onTimeRangeChange={setTimeRange}
+          onTimeOffsetChange={setTimeOffset}
         />
       </div>
     </Stack>

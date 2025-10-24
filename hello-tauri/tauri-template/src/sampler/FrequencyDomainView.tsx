@@ -22,6 +22,8 @@ interface FrequencyDomainViewProps {
   color2: string;
   color3: string;
   color4: string;
+  onTimeRangeChange?: (range: number) => void;
+  onTimeOffsetChange?: (offset: number) => void;
 }
 
 export function FrequencyDomainView({
@@ -35,6 +37,8 @@ export function FrequencyDomainView({
   color2,
   color3,
   color4,
+  onTimeRangeChange,
+  onTimeOffsetChange,
 }: FrequencyDomainViewProps) {
   console.log(`[FrequencyDomainView] Component render - timeOffset: ${timeOffset}, timeRange: ${timeRange}`);
 
@@ -194,6 +198,36 @@ export function FrequencyDomainView({
     );
   }, [spectrogramData, wavData, fmin, fmax]);
 
+  // Handle rectangle selection for zooming
+  const handleRectangleSelect = useCallback((startX: number, startY: number, endX: number, endY: number) => {
+    // startX and endX are in milliseconds (chart coordinates)
+    // We only care about the X axis (time) for zooming
+
+    const minTime = Math.min(startX, endX);
+    const maxTime = Math.max(startX, endX);
+    const newTimeRange = maxTime - minTime;
+
+    // Only zoom if the range is meaningful (at least 10ms)
+    if (newTimeRange >= 10) {
+      if (onTimeRangeChange) {
+        onTimeRangeChange(newTimeRange);
+      }
+      if (onTimeOffsetChange) {
+        onTimeOffsetChange(minTime);
+      }
+    }
+  }, [onTimeRangeChange, onTimeOffsetChange]);
+
+  // Handle double-click to reset zoom to 5 seconds with offset 0
+  const handleDoubleClick = useCallback(() => {
+    if (onTimeRangeChange) {
+      onTimeRangeChange(5000); // 5 seconds in milliseconds
+    }
+    if (onTimeOffsetChange) {
+      onTimeOffsetChange(0);
+    }
+  }, [onTimeRangeChange, onTimeOffsetChange]);
+
   return (
     <Card withBorder ref={containerRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Card.Section style={{ flexShrink: 0, position: 'relative' }}>
@@ -205,6 +239,9 @@ export function FrequencyDomainView({
           xOffset={0}
           onRender={handleRender}
           renderTooltip={renderTooltip}
+          enableDragSelection={true}
+          onRectangleSelect={handleRectangleSelect}
+          onDoubleClick={handleDoubleClick}
         />
         {spectrogramData && (
           <MagnitudeLegend
