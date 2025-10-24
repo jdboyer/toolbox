@@ -1,5 +1,6 @@
 import { Card, Group, Text, Stack, Slider, Tooltip } from "@mantine/core";
 import { CanvasChart } from "./CanvasChart.tsx";
+import { MagnitudeLegend } from "./MagnitudeLegend.tsx";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { renderSpectrogram, type SpectrogramData } from "./SpectrogramRenderer.tsx";
 import { computeCQT } from "./cqt/cqt.ts";
@@ -195,7 +196,7 @@ export function FrequencyDomainView({
 
   return (
     <Card withBorder ref={containerRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Card.Section style={{ flexShrink: 0 }}>
+      <Card.Section style={{ flexShrink: 0, position: 'relative' }}>
         <CanvasChart
           width={canvasWidth}
           height={canvasHeight}
@@ -205,6 +206,17 @@ export function FrequencyDomainView({
           onRender={handleRender}
           renderTooltip={renderTooltip}
         />
+        {spectrogramData && (
+          <MagnitudeLegend
+            width={80}
+            height={canvasHeight}
+            colormap={colormap}
+            minMagnitude={spectrogramData.minMagnitude}
+            maxMagnitude={spectrogramData.maxMagnitude}
+            gain={gain}
+            colorCurve={colorCurve}
+          />
+        )}
       </Card.Section>
       <Card.Section p="sm" style={{ flexShrink: 0 }}>
         <Stack gap="xs">
