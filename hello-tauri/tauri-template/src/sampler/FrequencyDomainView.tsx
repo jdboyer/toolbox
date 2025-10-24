@@ -195,6 +195,9 @@ export function FrequencyDomainView({
                 <Text size="xs" c="dimmed">
                   Freq res: {(1200 / binsPerOctave).toFixed(0)} cents
                 </Text>
+                <Text size="xs" c="dimmed">
+                  Nyquist: {(wavData!.sample_rate / 2).toFixed(0)} Hz
+                </Text>
               </>
             )}
           </Group>
@@ -260,7 +263,7 @@ export function FrequencyDomainView({
                   value={fmax}
                   onChange={setFmax}
                   min={1000}
-                  max={8000}
+                  max={wavData ? wavData.sample_rate / 2 : 24000}
                   step={1}
                   color="pink"
                   size="xs"
