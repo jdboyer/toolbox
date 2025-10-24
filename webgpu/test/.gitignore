@@ -1,0 +1,7 @@
+# Ignore test output files
+*.png
+*.cqt
+*.wav
+
+# Keep test code and utilities
+!*.ts

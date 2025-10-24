@@ -1,0 +1,8 @@
+{
+  "tasks": {
+    "test": "deno test --allow-read --allow-write --unstable-webgpu test/cqt_test.ts"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "deno.unstable"]
+  }
+}

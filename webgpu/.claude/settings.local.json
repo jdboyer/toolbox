@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(deno test --allow-read --allow-write --unstable-webgpu test/cqt_test.ts --filter \"Custom WAV\")",
+      "Bash(deno test --allow-read --allow-write --unstable-webgpu test/cqt_test.ts --filter \"Sine wave\")",
+      "Bash(deno task test)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
