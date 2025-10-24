@@ -24,32 +24,43 @@ function getGridConfig(timeRangeMs: number, canvasWidth: number): GridConfig {
   // We want at least 80px between grid lines for readability
   const minPxBetweenLines = 80;
 
-  // Possible intervals: 1s, 500ms, 200ms, 100ms, 50ms, 20ms, 10ms
+  console.log('getGridConfig called:', { timeRangeMs, canvasWidth, pxPerSecond, minPxBetweenLines });
+
+  // Possible intervals: 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s (smallest to largest)
   const intervals = [
-    { ms: 1000, format: (t: number) => `${(t / 1000).toFixed(0)}s` },
-    { ms: 500, format: (t: number) => `${(t / 1000).toFixed(1)}s` },
-    { ms: 200, format: (t: number) => `${t.toFixed(0)}ms` },
-    { ms: 100, format: (t: number) => `${t.toFixed(0)}ms` },
-    { ms: 50, format: (t: number) => `${t.toFixed(0)}ms` },
-    { ms: 20, format: (t: number) => `${t.toFixed(0)}ms` },
     { ms: 10, format: (t: number) => `${t.toFixed(0)}ms` },
+    { ms: 20, format: (t: number) => `${t.toFixed(0)}ms` },
+    { ms: 50, format: (t: number) => `${t.toFixed(0)}ms` },
+    { ms: 100, format: (t: number) => `${t.toFixed(0)}ms` },
+    { ms: 200, format: (t: number) => `${t.toFixed(0)}ms` },
+    { ms: 500, format: (t: number) => `${(t / 1000).toFixed(1)}s` },
+    { ms: 1000, format: (t: number) => `${(t / 1000).toFixed(0)}s` },
   ];
 
-  // Find the first interval that gives us enough spacing
-  for (const interval of intervals) {
+  // Find the smallest interval that gives us enough spacing
+  // Iterate from largest to smallest, return the first one that's too small
+  // (meaning the previous one was the smallest that works)
+  let selectedInterval = intervals[intervals.length - 1]; // Default to largest (1000ms)
+
+  for (let i = intervals.length - 1; i >= 0; i--) {
+    const interval = intervals[i];
     const pxBetweenLines = (interval.ms / 1000) * pxPerSecond;
+    console.log(`Testing interval ${interval.ms}ms: pxBetweenLines=${pxBetweenLines}`);
     if (pxBetweenLines >= minPxBetweenLines) {
-      return {
-        intervalMs: interval.ms,
-        labelFormat: interval.format,
-      };
+      selectedInterval = interval;
+      console.log(`Candidate interval: ${interval.ms}ms`);
+      // Keep going to find smaller intervals
+    } else {
+      // This interval is too small, stop here
+      console.log(`Interval ${interval.ms}ms too small, stopping`);
+      break;
     }
   }
 
-  // Fallback to 10ms if we're extremely zoomed in
+  console.log(`Final selected interval: ${selectedInterval.ms}ms`);
   return {
-    intervalMs: 10,
-    labelFormat: (t: number) => `${t.toFixed(0)}ms`,
+    intervalMs: selectedInterval.ms,
+    labelFormat: selectedInterval.format,
   };
 }
 
@@ -62,6 +73,13 @@ function drawGrid(
   timeOffset: number
 ) {
   const config = getGridConfig(timeRange, width);
+
+  console.log('Grid config:', {
+    timeRange,
+    width,
+    intervalMs: config.intervalMs,
+    pxPerSecond: width / (timeRange / 1000),
+  });
 
   // Calculate the first grid line position (snap to interval)
   const firstGridTime = Math.ceil(timeOffset / config.intervalMs) * config.intervalMs;
