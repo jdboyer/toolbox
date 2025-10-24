@@ -45,8 +45,8 @@ export function FrequencyDomainView({
     const updateHeight = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        // Reserve space for controls (approximately 200px) and card padding
-        const availableHeight = rect.height - 230;
+        // Reserve space for controls (approximately 240px) and card padding
+        const availableHeight = rect.height - 250;
         setCanvasHeight(Math.max(200, availableHeight));
       }
     };
@@ -63,6 +63,10 @@ export function FrequencyDomainView({
   const [hopLength, setHopLength] = useState(512);
   const [windowScale, setWindowScale] = useState(1.0);
   const [threshold, setThreshold] = useState(0.0054);
+
+  // Display controls
+  const [gain, setGain] = useState(1.0);
+  const [colorCurve, setColorCurve] = useState(1.0); // 0.1 to 10.0, where 1.0 is linear
 
   // Spectrogram state
   const [spectrogramData, setSpectrogramData] = useState<SpectrogramData | null>(null);
@@ -147,8 +151,10 @@ export function FrequencyDomainView({
       timeRange,
       timeOffset,
       colormap,
+      gain,
+      colorCurve,
     });
-  }, [spectrogramData, timeRange, timeOffset, colormap]);
+  }, [spectrogramData, timeRange, timeOffset, colormap, gain, colorCurve]);
 
   return (
     <Card withBorder ref={containerRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -191,6 +197,43 @@ export function FrequencyDomainView({
                 </Text>
               </>
             )}
+          </Group>
+
+          {/* Display Controls */}
+          <Group gap="md" grow>
+            <Tooltip label="Display gain: amplifies magnitude values before color mapping" withArrow>
+              <Stack gap={2}>
+                <Text size="xs" c="dimmed">Gain: {gain.toFixed(2)}x</Text>
+                <Slider
+                  value={gain}
+                  onChange={setGain}
+                  min={0.5}
+                  max={10}
+                  step={0.1}
+                  color="orange"
+                  size="xs"
+                  label={(val) => `${val.toFixed(2)}x`}
+                />
+              </Stack>
+            </Tooltip>
+            <Tooltip label="Color curve: exponential mapping from magnitude to color (>1 = darker, <1 = brighter)" withArrow>
+              <Stack gap={2}>
+                <Text size="xs" c="dimmed">Color Curve: {colorCurve.toFixed(2)}</Text>
+                <Slider
+                  value={colorCurve}
+                  onChange={setColorCurve}
+                  min={0.1}
+                  max={5.0}
+                  step={0.1}
+                  color="grape"
+                  size="xs"
+                  label={(val) => `${val.toFixed(2)}`}
+                  marks={[
+                    { value: 1.0, label: 'Linear' }
+                  ]}
+                />
+              </Stack>
+            </Tooltip>
           </Group>
 
           {/* CQT Controls */}

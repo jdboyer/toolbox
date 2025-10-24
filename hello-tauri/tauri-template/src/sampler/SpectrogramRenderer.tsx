@@ -16,9 +16,14 @@ export interface SpectrogramData {
 let cachedImageData: ImageData | null = null;
 let cacheKey: string | null = null;
 
-function generateCacheKey(spectrogramData: SpectrogramData, colormap: string[]): string {
+function generateCacheKey(
+  spectrogramData: SpectrogramData,
+  colormap: string[],
+  gain: number,
+  colorCurve: number
+): string {
   // Create a cache key based on the data that affects rendering
-  return `${spectrogramData.numBins}-${spectrogramData.numFrames}-${spectrogramData.minMagnitude}-${spectrogramData.maxMagnitude}-${colormap.join(',')}`;
+  return `${spectrogramData.numBins}-${spectrogramData.numFrames}-${spectrogramData.minMagnitude}-${spectrogramData.maxMagnitude}-${colormap.join(',')}-${gain}-${colorCurve}`;
 }
 
 // Generate dummy spectrogram data for testing
@@ -117,6 +122,8 @@ export function renderSpectrogram(
     timeRange: number;
     timeOffset: number;
     colormap?: string[];
+    gain?: number;
+    colorCurve?: number;
   }
 ) {
   const startTime = performance.now();
@@ -136,18 +143,29 @@ export function renderSpectrogram(
   const { timeRange, timeOffset } = options;
   const { sampleRate, hopLength, numFrames, numBins } = spectrogramData;
 
+  // Extract display parameters with defaults
+  const gain = options.gain ?? 1.0;
+  const colorCurve = options.colorCurve ?? 1.0;
+
   // Time in seconds per frame
   const secondsPerFrame = hopLength / sampleRate;
 
-  // Normalize magnitudes to [0, 1] range
+  // Normalize magnitudes to [0, 1] range with gain and exponential curve
   const magRange = spectrogramData.maxMagnitude - spectrogramData.minMagnitude;
   const normalizeMagnitude = (mag: number) => {
     if (magRange === 0) return 0;
-    return (mag - spectrogramData.minMagnitude) / magRange;
+    // Apply gain first
+    const gainedMag = mag * gain;
+    // Normalize to [0, 1]
+    const normalized = Math.max(0, Math.min(1, (gainedMag - spectrogramData.minMagnitude) / magRange));
+    // Apply exponential curve: output = input^(1/colorCurve)
+    // colorCurve > 1: compresses high values, expands low values (darker overall)
+    // colorCurve < 1: expands high values, compresses low values (brighter overall)
+    return Math.pow(normalized, 1 / colorCurve);
   };
 
   // Check if we can use cached full spectrogram
-  const newCacheKey = generateCacheKey(spectrogramData, colormap);
+  const newCacheKey = generateCacheKey(spectrogramData, colormap, gain, colorCurve);
   const needsFullRender = cacheKey !== newCacheKey || !cachedImageData ||
                           cachedImageData.width !== numFrames ||
                           cachedImageData.height !== height;
