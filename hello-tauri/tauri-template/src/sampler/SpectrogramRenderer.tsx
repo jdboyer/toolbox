@@ -8,6 +8,17 @@ export interface SpectrogramData {
   numFrames: number;
   minMagnitude: number;
   maxMagnitude: number;
+  sampleRate: number;
+  hopLength: number;
+}
+
+// Cache for rendered spectrogram to avoid re-rendering on every timeOffset change
+let cachedImageData: ImageData | null = null;
+let cacheKey: string | null = null;
+
+function generateCacheKey(spectrogramData: SpectrogramData, colormap: string[]): string {
+  // Create a cache key based on the data that affects rendering
+  return `${spectrogramData.numBins}-${spectrogramData.numFrames}-${spectrogramData.minMagnitude}-${spectrogramData.maxMagnitude}-${colormap.join(',')}`;
 }
 
 // Generate dummy spectrogram data for testing
@@ -48,6 +59,8 @@ function generateDummySpectrogram(
     numFrames: numTimeBins,
     minMagnitude,
     maxMagnitude,
+    sampleRate: 48000, // Dummy value
+    hopLength: 512, // Dummy value
   };
 }
 
@@ -106,6 +119,8 @@ export function renderSpectrogram(
     colormap?: string[];
   }
 ) {
+  const startTime = performance.now();
+
   // Use provided data or generate dummy data
   const spectrogramData = options.spectrogramData || generateDummySpectrogram(256, 512);
 
@@ -118,9 +133,11 @@ export function renderSpectrogram(
     "#fde725", // Yellow
   ];
 
-  // Create an ImageData object for efficient pixel manipulation
-  const imageData = ctx.createImageData(width, height);
-  const data = imageData.data;
+  const { timeRange, timeOffset } = options;
+  const { sampleRate, hopLength, numFrames, numBins } = spectrogramData;
+
+  // Time in seconds per frame
+  const secondsPerFrame = hopLength / sampleRate;
 
   // Normalize magnitudes to [0, 1] range
   const magRange = spectrogramData.maxMagnitude - spectrogramData.minMagnitude;
@@ -129,43 +146,86 @@ export function renderSpectrogram(
     return (mag - spectrogramData.minMagnitude) / magRange;
   };
 
-  // Render the spectrogram
-  // X-axis: time (maps to canvas width)
-  // Y-axis: frequency bins (maps to canvas height)
-  // Frequency axis is logarithmic but bins are also logarithmic, so mapping is linear
+  // Check if we can use cached full spectrogram
+  const newCacheKey = generateCacheKey(spectrogramData, colormap);
+  const needsFullRender = cacheKey !== newCacheKey || !cachedImageData ||
+                          cachedImageData.width !== numFrames ||
+                          cachedImageData.height !== height;
 
-  for (let canvasY = 0; canvasY < height; canvasY++) {
-    // Map canvas Y to frequency bin (linear mapping)
-    // canvasY=0 -> bin=numBins-1 (highest frequency at top)
-    // canvasY=height-1 -> bin=0 (lowest frequency at bottom)
-    const binFloat = (spectrogramData.numBins - 1) * (1 - canvasY / height);
+  if (needsFullRender) {
+    console.log('[SpectrogramRenderer] Rendering full spectrogram (cache miss)');
+    const fullRenderStart = performance.now();
 
-    for (let canvasX = 0; canvasX < width; canvasX++) {
-      // Map canvas X to time frame
-      const frameFloat = (canvasX / width) * (spectrogramData.numFrames - 1);
+    // Render the FULL spectrogram at native resolution (1 pixel per frame)
+    cachedImageData = new ImageData(numFrames, height);
+    const fullData = cachedImageData.data;
 
-      // Bilinear interpolation for smooth rendering
-      const magnitude = bilinearInterpolate(
-        spectrogramData,
-        binFloat,
-        frameFloat
-      );
+    // Render every frame into the full-resolution image
+    for (let y = 0; y < height; y++) {
+      const binFloat = (numBins - 1) * (1 - y / height);
 
-      // Normalize and convert magnitude to color
-      const normalizedMag = normalizeMagnitude(magnitude);
-      const [r, g, b] = magnitudeToColor(normalizedMag, colormap);
+      for (let frameIdx = 0; frameIdx < numFrames; frameIdx++) {
+        // Get magnitude directly (no time conversion needed)
+        const magnitude = bilinearInterpolate(spectrogramData, binFloat, frameIdx);
+        const normalizedMag = normalizeMagnitude(magnitude);
+        const [r, g, b] = magnitudeToColor(normalizedMag, colormap);
 
-      // Set pixel in ImageData
-      const pixelIndex = (canvasY * width + canvasX) * 4;
-      data[pixelIndex] = r;
-      data[pixelIndex + 1] = g;
-      data[pixelIndex + 2] = b;
-      data[pixelIndex + 3] = 255; // Alpha
+        // Set pixel in full-resolution ImageData
+        const pixelIndex = (y * numFrames + frameIdx) * 4;
+        fullData[pixelIndex] = r;
+        fullData[pixelIndex + 1] = g;
+        fullData[pixelIndex + 2] = b;
+        fullData[pixelIndex + 3] = 255;
+      }
+    }
+
+    cacheKey = newCacheKey;
+    const fullRenderEnd = performance.now();
+    console.log(`[SpectrogramRenderer] Full render took: ${(fullRenderEnd - fullRenderStart).toFixed(2)}ms`);
+  } else {
+    console.log('[SpectrogramRenderer] Using cached spectrogram');
+  }
+
+  // Now render the visible portion from cache to canvas
+  const renderStart = performance.now();
+  const viewImageData = ctx.createImageData(width, height);
+  const viewData = viewImageData.data;
+
+  // Map each canvas pixel to the cached image
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      // Map canvas X to time
+      const timeMs = timeOffset + (x / width) * timeRange;
+      const timeSeconds = timeMs / 1000;
+      const frameFloat = timeSeconds / secondsPerFrame;
+
+      // Clamp to valid frame range
+      const frameIdx = Math.max(0, Math.min(numFrames - 1, Math.floor(frameFloat)));
+
+      // Get pixel from cached image
+      const cachePixelIndex = (y * numFrames + frameIdx) * 4;
+      const viewPixelIndex = (y * width + x) * 4;
+
+      viewData[viewPixelIndex] = cachedImageData!.data[cachePixelIndex];
+      viewData[viewPixelIndex + 1] = cachedImageData!.data[cachePixelIndex + 1];
+      viewData[viewPixelIndex + 2] = cachedImageData!.data[cachePixelIndex + 2];
+      viewData[viewPixelIndex + 3] = 255;
     }
   }
 
-  // Draw the image data to the canvas
-  ctx.putImageData(imageData, 0, 0);
+  const renderEnd = performance.now();
+
+  // Draw to canvas
+  const putImageStart = performance.now();
+  ctx.putImageData(viewImageData, 0, 0);
+  const putImageEnd = performance.now();
+
+  const endTime = performance.now();
+  const totalTime = endTime - startTime;
+  const viewRenderTime = renderEnd - renderStart;
+  const putImageTime = putImageEnd - putImageStart;
+
+  console.log(`[SpectrogramRenderer] Total: ${totalTime.toFixed(2)}ms (View render: ${viewRenderTime.toFixed(2)}ms, putImageData: ${putImageTime.toFixed(2)}ms)`);
 }
 
 // Bilinear interpolation for smooth color transitions

@@ -1,6 +1,6 @@
 import { Card, Group, Text, Stack, Slider, Loader, ColorInput } from "@mantine/core";
 import { CanvasChart } from "./CanvasChart.tsx";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { renderSpectrogram, type SpectrogramData } from "./SpectrogramRenderer.tsx";
 import { computeCQT } from "./cqt/cqt.ts";
 
@@ -27,6 +27,8 @@ export function FrequencyDomainView({
   wavFilePath,
   wavData,
 }: FrequencyDomainViewProps) {
+  console.log(`[FrequencyDomainView] Component render - timeOffset: ${timeOffset}, timeRange: ${timeRange}`);
+
   // CQT configuration parameters
   const [fmin, setFmin] = useState(65); // C2 - safe for 48kHz
   const [fmax, setFmax] = useState(4186); // C8
@@ -88,6 +90,8 @@ export function FrequencyDomainView({
           numFrames: result.numFrames,
           minMagnitude,
           maxMagnitude,
+          sampleRate: wavData.sample_rate,
+          hopLength,
         });
       } catch (error) {
         console.error("Failed to compute CQT:", error);
@@ -113,15 +117,18 @@ export function FrequencyDomainView({
     offset: 0
   };
 
+  // Memoize colormap array to avoid recreating it on every render
+  const colormap = useMemo(() => [color0, color1, color2, color3, color4], [color0, color1, color2, color3, color4]);
+
   // Render function wrapper for the spectrogram
   const handleRender = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
     renderSpectrogram(ctx, width, height, {
       spectrogramData,
       timeRange,
       timeOffset,
-      colormap: [color0, color1, color2, color3, color4],
+      colormap,
     });
-  }, [spectrogramData, timeRange, timeOffset, color0, color1, color2, color3, color4]);
+  }, [spectrogramData, timeRange, timeOffset, colormap]);
 
   return (
     <Card withBorder>
