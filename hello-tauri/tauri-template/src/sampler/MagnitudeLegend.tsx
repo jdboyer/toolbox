@@ -83,9 +83,9 @@ export function MagnitudeLegend({
     // Layout parameters
     const tickLength = 5;
     const labelOffset = 8;
-    const gradientWidth = 20;
-    const leftMargin = 5; // Small margin from edge
-    const rightMargin = 5;
+    const gradientWidth = 10; // Half of original 20px
+    const leftMargin = 5;
+    const rightMargin = 15; // Increased to move legend left
     const topMargin = 10;
     const bottomMargin = 10;
 
@@ -122,8 +122,8 @@ export function MagnitudeLegend({
       ctx.fillRect(gradientX, gradientY + y, gradientWidth, 1);
     }
 
-    // Draw border around gradient
-    ctx.strokeStyle = "#ffffff";
+    // Draw border around gradient with 50% transparency
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
     ctx.lineWidth = 1;
     ctx.strokeRect(gradientX, gradientY, gradientWidth, gradientHeight);
 
@@ -143,8 +143,8 @@ export function MagnitudeLegend({
     // Start from a nice round number
     const startDB = Math.ceil(minDB / tickInterval) * tickInterval;
 
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#ffffff";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
     ctx.font = "10px monospace";
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";

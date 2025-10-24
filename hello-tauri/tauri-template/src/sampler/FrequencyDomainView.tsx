@@ -209,7 +209,7 @@ export function FrequencyDomainView({
         {spectrogramData && (
           <MagnitudeLegend
             width={80}
-            height={canvasHeight}
+            height={Math.floor(canvasHeight / 3)}
             colormap={colormap}
             minMagnitude={spectrogramData.minMagnitude}
             maxMagnitude={spectrogramData.maxMagnitude}
