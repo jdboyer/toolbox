@@ -1,13 +1,22 @@
-import { Card, Group, Text, Stack, AngleSlider } from "@mantine/core";
+import { Card, Group, Text, Stack, Slider, Loader, ColorInput } from "@mantine/core";
 import { CanvasChart } from "./CanvasChart.tsx";
-import { useState, useCallback } from "react";
-import { renderSpectrogram } from "./SpectrogramRenderer.tsx";
+import { useState, useCallback, useEffect } from "react";
+import { renderSpectrogram, type SpectrogramData } from "./SpectrogramRenderer.tsx";
+import { computeCQT } from "./cqt/cqt.ts";
+
+interface WavData {
+  samples: number[];
+  sample_rate: number;
+  duration_ms: number;
+}
 
 interface FrequencyDomainViewProps {
   canvasWidth: number; // Canvas width in px
   canvasHeight: number; // Canvas height in px
   timeRange: number; // Total time range in ms
   timeOffset: number; // Time offset in ms
+  wavFilePath: string | null;
+  wavData: WavData | null;
 }
 
 export function FrequencyDomainView({
@@ -15,50 +24,104 @@ export function FrequencyDomainView({
   canvasHeight,
   timeRange,
   timeOffset,
+  wavFilePath,
+  wavData,
 }: FrequencyDomainViewProps) {
-  const [numFreqBins, setNumFreqBins] = useState(256);
-  const [numTimeBins, setNumTimeBins] = useState(512);
+  // CQT configuration parameters
+  const [fmin, setFmin] = useState(65); // C2 - safe for 48kHz
+  const [fmax, setFmax] = useState(4186); // C8
+  const [binsPerOctave, setBinsPerOctave] = useState(12); // Semitone resolution
+  const [hopLength, setHopLength] = useState(512);
+  const [windowScale, setWindowScale] = useState(1.0);
+  const [threshold, setThreshold] = useState(0.0054);
+
+  // Colormap configuration (control points for gradient)
+  const [color0, setColor0] = useState("#440154"); // Dark purple
+  const [color1, setColor1] = useState("#3b528b"); // Blue
+  const [color2, setColor2] = useState("#21918c"); // Teal
+  const [color3, setColor3] = useState("#5ec962"); // Green
+  const [color4, setColor4] = useState("#fde725"); // Yellow
+
+  // Spectrogram state
+  const [spectrogramData, setSpectrogramData] = useState<SpectrogramData | null>(null);
+  const [isComputing, setIsComputing] = useState(false);
+
+  // Compute CQT when WAV data or config changes
+  useEffect(() => {
+    if (!wavData) {
+      setSpectrogramData(null);
+      return;
+    }
+
+    const computeSpectrogramData = async () => {
+      try {
+        setIsComputing(true);
+        console.log("Computing CQT with config:", { fmin, fmax, binsPerOctave, hopLength, windowScale, threshold });
+
+        // Convert samples to Float32Array
+        const audioData = new Float32Array(wavData.samples);
+
+        // Compute CQT
+        const result = await computeCQT(audioData, {
+          sampleRate: wavData.sample_rate,
+          fmin,
+          fmax,
+          binsPerOctave,
+          hopLength,
+          windowScale,
+          threshold,
+        });
+
+        console.log(`CQT computed: ${result.numBins} bins × ${result.numFrames} frames`);
+
+        // Find min/max magnitude for normalization
+        let minMagnitude = Infinity;
+        let maxMagnitude = -Infinity;
+        for (let i = 0; i < result.magnitudes.length; i++) {
+          minMagnitude = Math.min(minMagnitude, result.magnitudes[i]);
+          maxMagnitude = Math.max(maxMagnitude, result.magnitudes[i]);
+        }
+
+        setSpectrogramData({
+          magnitudes: result.magnitudes,
+          numBins: result.numBins,
+          numFrames: result.numFrames,
+          minMagnitude,
+          maxMagnitude,
+        });
+      } catch (error) {
+        console.error("Failed to compute CQT:", error);
+        setSpectrogramData(null);
+      } finally {
+        setIsComputing(false);
+      }
+    };
+
+    computeSpectrogramData();
+  }, [wavData, fmin, fmax, binsPerOctave, hopLength, windowScale, threshold]);
 
   // Coordinate system transforms
   // X-axis: Time range from timeOffset to timeOffset + timeRange (matches time domain view)
-  // For x: chartValue = slope * canvasPx + offset
-  // timeOffset = slope * 0 + offset -> offset = timeOffset
-  // (timeOffset + timeRange) = slope * canvasWidth + offset
-  // -> slope = timeRange / canvasWidth
   const xTransform = {
     slope: timeRange / canvasWidth,
     offset: timeOffset
   };
 
   // Y-axis: Frequency bins (logarithmic scale, but bins are also logarithmic)
-  // Linear mapping: canvasY=0 -> highest frequency, canvasY=height -> lowest frequency
-  // For simplicity, map to normalized frequency range [0, 1]
-  // 0 = slope * 0 + offset -> offset = 0
-  // 1 = slope * canvasHeight + offset -> slope = 1 / canvasHeight
   const yTransform = {
     slope: 1 / canvasHeight,
     offset: 0
   };
 
-  // Convert frequency bins to angle (0-360 degrees)
-  // Map 64 to 1024 bins -> 0 to 360 degrees
-  const freqBinsToAngle = (bins: number) => ((bins - 64) / 960) * 360;
-  const angleToFreqBins = (angle: number) => Math.round((angle / 360) * 960 + 64);
-
-  // Convert time bins to angle (0-360 degrees)
-  // Map 128 to 2048 bins -> 0 to 360 degrees
-  const timeBinsToAngle = (bins: number) => ((bins - 128) / 1920) * 360;
-  const angleToTimeBins = (angle: number) => Math.round((angle / 360) * 1920 + 128);
-
   // Render function wrapper for the spectrogram
   const handleRender = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
     renderSpectrogram(ctx, width, height, {
-      numFreqBins,
-      numTimeBins,
+      spectrogramData,
       timeRange,
       timeOffset,
+      colormap: [color0, color1, color2, color3, color4],
     });
-  }, [numFreqBins, numTimeBins, timeRange, timeOffset]);
+  }, [spectrogramData, timeRange, timeOffset, color0, color1, color2, color3, color4]);
 
   return (
     <Card withBorder>
@@ -73,28 +136,124 @@ export function FrequencyDomainView({
         />
       </Card.Section>
       <Card.Section p="md">
-        <Group>
-          <Stack align="center" gap="xs">
-            <Text size="sm">Freq Bins</Text>
-            <AngleSlider
-              value={freqBinsToAngle(numFreqBins)}
-              onChange={(angle) => setNumFreqBins(angleToFreqBins(angle))}
-              size={40}
-              color="violet"
-              formatLabel={(angle) => `${angleToFreqBins(angle)}`}
+        <Stack gap="md">
+          {isComputing && (
+            <Group>
+              <Loader size="sm" />
+              <Text size="sm">Computing CQT...</Text>
+            </Group>
+          )}
+          <Group gap="xl" grow>
+            <Stack gap="xs">
+              <Text size="sm">fmin: {Math.round(fmin)} Hz</Text>
+              <Slider
+                value={fmin}
+                onChange={setFmin}
+                min={32.7}
+                max={200}
+                step={0.1}
+                color="violet"
+                label={(val) => `${Math.round(val)} Hz`}
+              />
+            </Stack>
+            <Stack gap="xs">
+              <Text size="sm">fmax: {Math.round(fmax)} Hz</Text>
+              <Slider
+                value={fmax}
+                onChange={setFmax}
+                min={1000}
+                max={8000}
+                step={1}
+                color="pink"
+                label={(val) => `${Math.round(val)} Hz`}
+              />
+            </Stack>
+          </Group>
+          <Group gap="xl" grow>
+            <Stack gap="xs">
+              <Text size="sm">Bins/Octave: {binsPerOctave}</Text>
+              <Slider
+                value={binsPerOctave}
+                onChange={setBinsPerOctave}
+                min={6}
+                max={48}
+                step={1}
+                color="blue"
+                label={(val) => `${val}`}
+              />
+            </Stack>
+            <Stack gap="xs">
+              <Text size="sm">Hop Length: {hopLength}</Text>
+              <Slider
+                value={hopLength}
+                onChange={setHopLength}
+                min={128}
+                max={2048}
+                step={1}
+                color="cyan"
+                label={(val) => `${val}`}
+              />
+            </Stack>
+          </Group>
+          <Group gap="xl" grow>
+            <Stack gap="xs">
+              <Text size="sm">Window Scale: {windowScale.toFixed(2)}x</Text>
+              <Slider
+                value={windowScale}
+                onChange={setWindowScale}
+                min={0.5}
+                max={2.0}
+                step={0.01}
+                color="teal"
+                label={(val) => `${val.toFixed(2)}x`}
+              />
+            </Stack>
+            <Stack gap="xs">
+              <Text size="sm">Threshold: {threshold.toFixed(4)}</Text>
+              <Slider
+                value={threshold}
+                onChange={setThreshold}
+                min={0.001}
+                max={0.01}
+                step={0.0001}
+                color="green"
+                label={(val) => `${val.toFixed(4)}`}
+              />
+            </Stack>
+          </Group>
+          <Group gap="xl" grow>
+            <ColorInput
+              label="Color 0 (Low)"
+              value={color0}
+              onChange={setColor0}
+              format="hex"
             />
-          </Stack>
-          <Stack align="center" gap="xs">
-            <Text size="sm">Time Bins</Text>
-            <AngleSlider
-              value={timeBinsToAngle(numTimeBins)}
-              onChange={(angle) => setNumTimeBins(angleToTimeBins(angle))}
-              size={40}
-              color="pink"
-              formatLabel={(angle) => `${angleToTimeBins(angle)}`}
+            <ColorInput
+              label="Color 1"
+              value={color1}
+              onChange={setColor1}
+              format="hex"
             />
-          </Stack>
-        </Group>
+            <ColorInput
+              label="Color 2 (Mid)"
+              value={color2}
+              onChange={setColor2}
+              format="hex"
+            />
+            <ColorInput
+              label="Color 3"
+              value={color3}
+              onChange={setColor3}
+              format="hex"
+            />
+            <ColorInput
+              label="Color 4 (High)"
+              value={color4}
+              onChange={setColor4}
+              format="hex"
+            />
+          </Group>
+        </Stack>
       </Card.Section>
     </Card>
   );

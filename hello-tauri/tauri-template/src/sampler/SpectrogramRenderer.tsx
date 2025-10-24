@@ -1,32 +1,32 @@
 // Spectrogram renderer for frequency domain visualization
 // Renders a 2D colormap of frequency bins vs time
 
-interface SpectrogramData {
-  // 2D matrix: rows = frequency bins, columns = time bins
-  // spectrogramData[freqBin][timeBin] = magnitude (0-1)
-  spectrogramData: number[][];
-  numFreqBins: number;
-  numTimeBins: number;
-  timeRange: number; // Total time range in ms
-  timeOffset: number; // Time offset in ms
+export interface SpectrogramData {
+  // CQT magnitude data in column-major order: magnitudes[frame * numBins + bin]
+  magnitudes: Float32Array;
+  numBins: number;
+  numFrames: number;
+  minMagnitude: number;
+  maxMagnitude: number;
 }
 
 // Generate dummy spectrogram data for testing
 function generateDummySpectrogram(
   numFreqBins: number,
   numTimeBins: number,
-): number[][] {
-  const data: number[][] = [];
+): SpectrogramData {
+  const magnitudes = new Float32Array(numFreqBins * numTimeBins);
+  let minMagnitude = Infinity;
+  let maxMagnitude = -Infinity;
 
-  for (let freqBin = 0; freqBin < numFreqBins; freqBin++) {
-    const row: number[] = [];
-    for (let timeBin = 0; timeBin < numTimeBins; timeBin++) {
+  for (let frame = 0; frame < numTimeBins; frame++) {
+    for (let bin = 0; bin < numFreqBins; bin++) {
       // Create some interesting patterns
-      // Lower frequencies (higher freqBin index) have more energy
-      const freqFactor = freqBin / numFreqBins;
+      // Lower frequencies (higher bin index) have more energy
+      const freqFactor = bin / numFreqBins;
 
       // Time-varying amplitude with some periodicity
-      const timeFactor = Math.sin(timeBin / numTimeBins * Math.PI * 4);
+      const timeFactor = Math.sin(frame / numTimeBins * Math.PI * 4);
 
       // Combine factors to create a pattern
       const magnitude = (freqFactor * 0.6 + 0.2) * (timeFactor * 0.5 + 0.5);
@@ -34,29 +34,44 @@ function generateDummySpectrogram(
       // Add some noise
       const noise = Math.random() * 0.1;
 
-      row.push(Math.max(0, Math.min(1, magnitude + noise)));
+      const value = Math.max(0, Math.min(1, magnitude + noise));
+      magnitudes[frame * numFreqBins + bin] = value;
+
+      minMagnitude = Math.min(minMagnitude, value);
+      maxMagnitude = Math.max(maxMagnitude, value);
     }
-    data.push(row);
   }
 
-  return data;
+  return {
+    magnitudes,
+    numBins: numFreqBins,
+    numFrames: numTimeBins,
+    minMagnitude,
+    maxMagnitude,
+  };
 }
 
-// Convert magnitude (0-1) to RGB color using a perceptually uniform colormap
-// Using a viridis-like colormap: dark purple -> blue -> green -> yellow
-function magnitudeToColor(magnitude: number): [number, number, number] {
+// Convert hex color to RGB
+function hexToRgb(hex: string): [number, number, number] {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
+    : [0, 0, 0];
+}
+
+// Convert magnitude (0-1) to RGB color using a configurable colormap
+// colormap: array of hex color strings for control points
+function magnitudeToColor(magnitude: number, colormap: string[]): [number, number, number] {
   // Clamp magnitude to [0, 1]
   const m = Math.max(0, Math.min(1, magnitude));
 
-  // Viridis-inspired colormap control points
+  // Convert colormap to control points
   // Format: [magnitude, r, g, b]
-  const controlPoints: [number, number, number, number][] = [
-    [0.0, 68, 1, 84],      // Dark purple
-    [0.25, 59, 82, 139],   // Blue
-    [0.5, 33, 145, 140],   // Teal
-    [0.75, 94, 201, 98],   // Green
-    [1.0, 253, 231, 37],   // Yellow
-  ];
+  const controlPoints: [number, number, number, number][] = colormap.map((hexColor, index) => {
+    const [r, g, b] = hexToRgb(hexColor);
+    const magnitude = index / (colormap.length - 1);
+    return [magnitude, r, g, b];
+  });
 
   // Find the two control points to interpolate between
   let lowerIdx = 0;
@@ -85,21 +100,34 @@ export function renderSpectrogram(
   width: number,
   height: number,
   options: {
-    numFreqBins?: number;
-    numTimeBins?: number;
+    spectrogramData?: SpectrogramData | null;
     timeRange: number;
     timeOffset: number;
+    colormap?: string[];
   }
 ) {
-  const numFreqBins = options.numFreqBins || 256;
-  const numTimeBins = options.numTimeBins || 512;
+  // Use provided data or generate dummy data
+  const spectrogramData = options.spectrogramData || generateDummySpectrogram(256, 512);
 
-  // Generate dummy data
-  const spectrogramData = generateDummySpectrogram(numFreqBins, numTimeBins);
+  // Default colormap (viridis-like)
+  const colormap = options.colormap || [
+    "#440154", // Dark purple
+    "#3b528b", // Blue
+    "#21918c", // Teal
+    "#5ec962", // Green
+    "#fde725", // Yellow
+  ];
 
   // Create an ImageData object for efficient pixel manipulation
   const imageData = ctx.createImageData(width, height);
   const data = imageData.data;
+
+  // Normalize magnitudes to [0, 1] range
+  const magRange = spectrogramData.maxMagnitude - spectrogramData.minMagnitude;
+  const normalizeMagnitude = (mag: number) => {
+    if (magRange === 0) return 0;
+    return (mag - spectrogramData.minMagnitude) / magRange;
+  };
 
   // Render the spectrogram
   // X-axis: time (maps to canvas width)
@@ -108,25 +136,24 @@ export function renderSpectrogram(
 
   for (let canvasY = 0; canvasY < height; canvasY++) {
     // Map canvas Y to frequency bin (linear mapping)
-    // canvasY=0 -> freqBin=numFreqBins-1 (highest frequency at top)
-    // canvasY=height-1 -> freqBin=0 (lowest frequency at bottom)
-    const freqBinFloat = (numFreqBins - 1) * (1 - canvasY / height);
+    // canvasY=0 -> bin=numBins-1 (highest frequency at top)
+    // canvasY=height-1 -> bin=0 (lowest frequency at bottom)
+    const binFloat = (spectrogramData.numBins - 1) * (1 - canvasY / height);
 
     for (let canvasX = 0; canvasX < width; canvasX++) {
-      // Map canvas X to time bin
-      const timeBinFloat = (canvasX / width) * (numTimeBins - 1);
+      // Map canvas X to time frame
+      const frameFloat = (canvasX / width) * (spectrogramData.numFrames - 1);
 
       // Bilinear interpolation for smooth rendering
       const magnitude = bilinearInterpolate(
         spectrogramData,
-        freqBinFloat,
-        timeBinFloat,
-        numFreqBins,
-        numTimeBins
+        binFloat,
+        frameFloat
       );
 
-      // Convert magnitude to color
-      const [r, g, b] = magnitudeToColor(magnitude);
+      // Normalize and convert magnitude to color
+      const normalizedMag = normalizeMagnitude(magnitude);
+      const [r, g, b] = magnitudeToColor(normalizedMag, colormap);
 
       // Set pixel in ImageData
       const pixelIndex = (canvasY * width + canvasX) * 4;
@@ -142,33 +169,32 @@ export function renderSpectrogram(
 }
 
 // Bilinear interpolation for smooth color transitions
+// Data is stored in column-major order: magnitudes[frame * numBins + bin]
 function bilinearInterpolate(
-  data: number[][],
-  freqBinFloat: number,
-  timeBinFloat: number,
-  numFreqBins: number,
-  numTimeBins: number
+  data: SpectrogramData,
+  binFloat: number,
+  frameFloat: number
 ): number {
   // Get the four surrounding integer coordinates
-  const freqBin0 = Math.floor(freqBinFloat);
-  const freqBin1 = Math.min(numFreqBins - 1, Math.ceil(freqBinFloat));
-  const timeBin0 = Math.floor(timeBinFloat);
-  const timeBin1 = Math.min(numTimeBins - 1, Math.ceil(timeBinFloat));
+  const bin0 = Math.floor(binFloat);
+  const bin1 = Math.min(data.numBins - 1, Math.ceil(binFloat));
+  const frame0 = Math.floor(frameFloat);
+  const frame1 = Math.min(data.numFrames - 1, Math.ceil(frameFloat));
 
   // Get interpolation factors
-  const freqT = freqBinFloat - freqBin0;
-  const timeT = timeBinFloat - timeBin0;
+  const binT = binFloat - bin0;
+  const frameT = frameFloat - frame0;
 
-  // Get the four corner values
-  const v00 = data[freqBin0]?.[timeBin0] ?? 0;
-  const v01 = data[freqBin0]?.[timeBin1] ?? 0;
-  const v10 = data[freqBin1]?.[timeBin0] ?? 0;
-  const v11 = data[freqBin1]?.[timeBin1] ?? 0;
+  // Get the four corner values from column-major order
+  const v00 = data.magnitudes[frame0 * data.numBins + bin0] ?? 0;
+  const v01 = data.magnitudes[frame1 * data.numBins + bin0] ?? 0;
+  const v10 = data.magnitudes[frame0 * data.numBins + bin1] ?? 0;
+  const v11 = data.magnitudes[frame1 * data.numBins + bin1] ?? 0;
 
-  // Interpolate along time axis first
-  const v0 = v00 * (1 - timeT) + v01 * timeT;
-  const v1 = v10 * (1 - timeT) + v11 * timeT;
+  // Interpolate along frame axis first
+  const v0 = v00 * (1 - frameT) + v01 * frameT;
+  const v1 = v10 * (1 - frameT) + v11 * frameT;
 
-  // Then interpolate along frequency axis
-  return v0 * (1 - freqT) + v1 * freqT;
+  // Then interpolate along bin axis
+  return v0 * (1 - binT) + v1 * binT;
 }

@@ -1,12 +1,20 @@
 import { Stack, Group, ActionIcon, Text } from "@mantine/core";
 import { IconFolder } from "@tabler/icons-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { TimeDomainView } from "./TimeDomainView";
 import { FrequencyDomainView } from "./FrequencyDomainView";
 
+interface WavData {
+  samples: number[];
+  sample_rate: number;
+  duration_ms: number;
+}
+
 export function Sampler() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [wavData, setWavData] = useState<WavData | null>(null);
 
   // Canvas dimensions
   const canvasWidth = 1400;
@@ -16,6 +24,28 @@ export function Sampler() {
   // Time axis state (in milliseconds)
   const [timeRange, setTimeRange] = useState(4000); // Total time range visible (ms)
   const [timeOffset, setTimeOffset] = useState(0); // Time offset from 0 (ms)
+
+  // Load WAV file when path changes
+  useEffect(() => {
+    if (!selectedFile) {
+      setWavData(null);
+      return;
+    }
+
+    const loadWavFile = async () => {
+      try {
+        console.log("Loading WAV file:", selectedFile);
+        const data = await invoke<WavData>("read_wav_file", { filePath: selectedFile });
+        console.log("WAV data loaded:", data);
+        setWavData(data);
+      } catch (error) {
+        console.error("Failed to load WAV file:", error);
+        setWavData(null);
+      }
+    };
+
+    loadWavFile();
+  }, [selectedFile]);
 
   const handleSelectFile = async () => {
     console.log("handleSelectFile called");
@@ -69,6 +99,8 @@ export function Sampler() {
         canvasHeight={frequencyDomainHeight}
         timeRange={timeRange}
         timeOffset={timeOffset}
+        wavFilePath={selectedFile}
+        wavData={wavData}
       />
     </Stack>
   );
