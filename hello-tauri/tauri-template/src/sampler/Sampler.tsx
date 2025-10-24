@@ -94,14 +94,15 @@ export function Sampler() {
         wavFilePath={selectedFile}
       />
 
-      <FrequencyDomainView
-        canvasWidth={canvasWidth}
-        canvasHeight={frequencyDomainHeight}
-        timeRange={timeRange}
-        timeOffset={timeOffset}
-        wavFilePath={selectedFile}
-        wavData={wavData}
-      />
+      <div style={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <FrequencyDomainView
+          canvasWidth={canvasWidth}
+          timeRange={timeRange}
+          timeOffset={timeOffset}
+          wavFilePath={selectedFile}
+          wavData={wavData}
+        />
+      </div>
     </Stack>
   );
 }

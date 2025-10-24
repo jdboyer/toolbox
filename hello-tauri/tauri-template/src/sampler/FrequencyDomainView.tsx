@@ -1,6 +1,6 @@
-import { Card, Group, Text, Stack, Slider, Loader, ColorInput } from "@mantine/core";
+import { Card, Group, Text, Stack, Slider, ColorInput } from "@mantine/core";
 import { CanvasChart } from "./CanvasChart.tsx";
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { renderSpectrogram, type SpectrogramData } from "./SpectrogramRenderer.tsx";
 import { computeCQT } from "./cqt/cqt.ts";
 
@@ -12,7 +12,6 @@ interface WavData {
 
 interface FrequencyDomainViewProps {
   canvasWidth: number; // Canvas width in px
-  canvasHeight: number; // Canvas height in px
   timeRange: number; // Total time range in ms
   timeOffset: number; // Time offset in ms
   wavFilePath: string | null;
@@ -21,13 +20,31 @@ interface FrequencyDomainViewProps {
 
 export function FrequencyDomainView({
   canvasWidth,
-  canvasHeight,
   timeRange,
   timeOffset,
   wavFilePath,
   wavData,
 }: FrequencyDomainViewProps) {
   console.log(`[FrequencyDomainView] Component render - timeOffset: ${timeOffset}, timeRange: ${timeRange}`);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [canvasHeight, setCanvasHeight] = useState(400);
+
+  // Measure container height on mount and resize
+  useEffect(() => {
+    const updateHeight = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        // Reserve space for controls (approximately 250px) and card padding
+        const availableHeight = rect.height - 280;
+        setCanvasHeight(Math.max(200, availableHeight));
+      }
+    };
+
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, []);
 
   // CQT configuration parameters
   const [fmin, setFmin] = useState(65); // C2 - safe for 48kHz
@@ -131,8 +148,8 @@ export function FrequencyDomainView({
   }, [spectrogramData, timeRange, timeOffset, colormap]);
 
   return (
-    <Card withBorder>
-      <Card.Section>
+    <Card withBorder ref={containerRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Card.Section style={{ flexShrink: 0 }}>
         <CanvasChart
           width={canvasWidth}
           height={canvasHeight}
@@ -142,17 +159,20 @@ export function FrequencyDomainView({
           onRender={handleRender}
         />
       </Card.Section>
-      <Card.Section p="md">
+      <Card.Section p="md" style={{ flexShrink: 0 }}>
         <Stack gap="md">
-          {isComputing && (
-            <Group>
-              <Loader size="sm" />
-              <Text size="sm">Computing CQT...</Text>
-            </Group>
-          )}
           <Group gap="xl" grow>
             <Stack gap="xs">
-              <Text size="sm">fmin: {Math.round(fmin)} Hz</Text>
+              <Group gap="xs">
+                <div style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  backgroundColor: isComputing ? '#fa5252' : '#51cf66',
+                  flexShrink: 0,
+                }} />
+                <Text size="sm">fmin: {Math.round(fmin)} Hz</Text>
+              </Group>
               <Slider
                 value={fmin}
                 onChange={setFmin}
