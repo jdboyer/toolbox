@@ -21,8 +21,8 @@ function getGridConfig(timeRangeMs: number, canvasWidth: number): GridConfig {
   // Calculate how many pixels per second
   const pxPerSecond = canvasWidth / (timeRangeMs / 1000);
 
-  // We want at least 80px between grid lines for readability
-  const minPxBetweenLines = 80;
+  // We want at least 160px between grid lines for readability
+  const minPxBetweenLines = 160;
 
   console.log('getGridConfig called:', { timeRangeMs, canvasWidth, pxPerSecond, minPxBetweenLines });
 
