@@ -156,6 +156,43 @@ export function FrequencyDomainView({
     });
   }, [spectrogramData, timeRange, timeOffset, colormap, gain, colorCurve]);
 
+  // Tooltip renderer for the spectrogram
+  const renderTooltip = useCallback((chartX: number, chartY: number) => {
+    if (!spectrogramData || !wavData) {
+      return <div>No data</div>;
+    }
+
+    // chartX is in milliseconds (timeOffset to timeOffset + timeRange)
+    const timeMs = chartX;
+    const timeSeconds = timeMs / 1000;
+
+    // chartY is normalized bin position (0 to 1), but we need to invert it
+    // because Y=0 is at the top of the canvas but represents the highest frequency
+    // Convert canvas Y position to frequency bin
+    const binFloat = (spectrogramData.numBins - 1) * (1 - chartY);
+    const bin = Math.max(0, Math.min(spectrogramData.numBins - 1, Math.round(binFloat)));
+
+    // Calculate frequency from bin index
+    // Bins are logarithmically spaced from fmin to fmax
+    const numOctaves = Math.log2(fmax / fmin);
+    const octavePerBin = numOctaves / (spectrogramData.numBins - 1);
+    const frequency = fmin * Math.pow(2, bin * octavePerBin);
+
+    // Get magnitude at this position
+    const frameFloat = timeSeconds / (spectrogramData.hopLength / spectrogramData.sampleRate);
+    const frame = Math.max(0, Math.min(spectrogramData.numFrames - 1, Math.floor(frameFloat)));
+    const magnitudeIndex = frame * spectrogramData.numBins + bin;
+    const magnitude = spectrogramData.magnitudes[magnitudeIndex] ?? 0;
+
+    return (
+      <>
+        <div>Time: {timeMs.toFixed(1)} ms</div>
+        <div>Freq: {frequency.toFixed(1)} Hz</div>
+        <div>Magnitude: {magnitude.toFixed(4)}</div>
+      </>
+    );
+  }, [spectrogramData, wavData, fmin, fmax]);
+
   return (
     <Card withBorder ref={containerRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Card.Section style={{ flexShrink: 0 }}>
@@ -166,6 +203,7 @@ export function FrequencyDomainView({
           yTransform={yTransform}
           xOffset={0}
           onRender={handleRender}
+          renderTooltip={renderTooltip}
         />
       </Card.Section>
       <Card.Section p="sm" style={{ flexShrink: 0 }}>

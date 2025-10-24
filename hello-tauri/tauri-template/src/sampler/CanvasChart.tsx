@@ -13,6 +13,7 @@ interface CanvasChartProps {
   yTransform: AxisTransform; // Transform from canvas px to chart data coordinates
   xOffset?: number; // Offset in chart data coordinates (default 0)
   onRender?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
+  renderTooltip?: (chartX: number, chartY: number) => React.ReactNode; // Custom tooltip renderer
 }
 
 export function CanvasChart({
@@ -22,6 +23,7 @@ export function CanvasChart({
   yTransform,
   xOffset = 0,
   onRender,
+  renderTooltip,
 }: CanvasChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -165,11 +167,20 @@ export function CanvasChart({
             zIndex: 1000,
           }}
         >
-          <div>Canvas: ({mousePos.x.toFixed(1)}px, {mousePos.y.toFixed(1)}px)</div>
-          <div>
-            Chart: ({canvasToChart(mousePos.x, xTransform).toFixed(2)}ms,{" "}
-            {canvasToChart(mousePos.y, yTransform).toFixed(3)})
-          </div>
+          {renderTooltip ? (
+            renderTooltip(
+              canvasToChart(mousePos.x, xTransform),
+              canvasToChart(mousePos.y, yTransform)
+            )
+          ) : (
+            <>
+              <div>Canvas: ({mousePos.x.toFixed(1)}px, {mousePos.y.toFixed(1)}px)</div>
+              <div>
+                Chart: ({canvasToChart(mousePos.x, xTransform).toFixed(2)}ms,{" "}
+                {canvasToChart(mousePos.y, yTransform).toFixed(3)})
+              </div>
+            </>
+          )}
         </Box>
       )}
     </Box>
