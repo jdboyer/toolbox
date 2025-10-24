@@ -8,6 +8,95 @@ interface RenderParams {
   wavData: WavData | null;
   timeRange: number;
   timeOffset: number;
+  gain: number;
+}
+
+interface GridConfig {
+  intervalMs: number;
+  labelFormat: (timeMs: number) => string;
+}
+
+// Determine optimal grid spacing based on visible time range
+function getGridConfig(timeRangeMs: number, canvasWidth: number): GridConfig {
+  // Calculate how many pixels per second
+  const pxPerSecond = canvasWidth / (timeRangeMs / 1000);
+
+  // We want at least 80px between grid lines for readability
+  const minPxBetweenLines = 80;
+
+  // Possible intervals: 1s, 500ms, 200ms, 100ms, 50ms, 20ms, 10ms
+  const intervals = [
+    { ms: 1000, format: (t: number) => `${(t / 1000).toFixed(0)}s` },
+    { ms: 500, format: (t: number) => `${(t / 1000).toFixed(1)}s` },
+    { ms: 200, format: (t: number) => `${t.toFixed(0)}ms` },
+    { ms: 100, format: (t: number) => `${t.toFixed(0)}ms` },
+    { ms: 50, format: (t: number) => `${t.toFixed(0)}ms` },
+    { ms: 20, format: (t: number) => `${t.toFixed(0)}ms` },
+    { ms: 10, format: (t: number) => `${t.toFixed(0)}ms` },
+  ];
+
+  // Find the first interval that gives us enough spacing
+  for (const interval of intervals) {
+    const pxBetweenLines = (interval.ms / 1000) * pxPerSecond;
+    if (pxBetweenLines >= minPxBetweenLines) {
+      return {
+        intervalMs: interval.ms,
+        labelFormat: interval.format,
+      };
+    }
+  }
+
+  // Fallback to 10ms if we're extremely zoomed in
+  return {
+    intervalMs: 10,
+    labelFormat: (t: number) => `${t.toFixed(0)}ms`,
+  };
+}
+
+// Draw grid lines and labels
+function drawGrid(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  timeRange: number,
+  timeOffset: number
+) {
+  const config = getGridConfig(timeRange, width);
+
+  // Calculate the first grid line position (snap to interval)
+  const firstGridTime = Math.ceil(timeOffset / config.intervalMs) * config.intervalMs;
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+  ctx.lineWidth = 1;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+  ctx.font = "11px monospace";
+  ctx.textBaseline = "top";
+
+  // Draw vertical grid lines
+  for (let timeMs = firstGridTime; timeMs <= timeOffset + timeRange; timeMs += config.intervalMs) {
+    // Calculate x position in canvas
+    const x = ((timeMs - timeOffset) / timeRange) * width;
+
+    if (x >= 0 && x <= width) {
+      // Draw vertical line
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+
+      // Draw label at top
+      const label = config.labelFormat(timeMs);
+      const labelWidth = ctx.measureText(label).width;
+
+      // Position label slightly to the right of the line, unless near the edge
+      let labelX = x + 4;
+      if (labelX + labelWidth > width) {
+        labelX = x - labelWidth - 4;
+      }
+
+      ctx.fillText(label, labelX, 4);
+    }
+  }
 }
 
 export function renderAmplitudeEnvelope(
@@ -16,21 +105,19 @@ export function renderAmplitudeEnvelope(
   height: number,
   params: RenderParams
 ) {
-  const { wavData, timeRange, timeOffset } = params;
-
-  if (!wavData || !wavData.samples || wavData.samples.length === 0) {
-    // Draw default gradient if no data
-    const gradient = ctx.createLinearGradient(0, 0, width, height);
-    gradient.addColorStop(0, "#228be6");
-    gradient.addColorStop(1, "#15aabf");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
-    return;
-  }
+  const { wavData, timeRange, timeOffset, gain } = params;
 
   // Clear background
   ctx.fillStyle = "#1a1b1e";
   ctx.fillRect(0, 0, width, height);
+
+  // Draw grid first (so it's behind the waveform)
+  drawGrid(ctx, width, height, timeRange, timeOffset);
+
+  if (!wavData || !wavData.samples || wavData.samples.length === 0) {
+    // No data to render, just show the grid
+    return;
+  }
 
   // Calculate time per pixel
   const msPerPixel = timeRange / width;
@@ -74,9 +161,12 @@ export function renderAmplitudeEnvelope(
 
       const avgMagnitude = count > 0 ? sumMagnitude / count : 0;
 
+      // Apply gain and clamp to [0, 1]
+      const scaledMagnitude = Math.min(1, avgMagnitude * gain);
+
       // Map magnitude [0, 1] to canvas y-coordinate
       // 0 magnitude = midY (center), max magnitude extends to top
-      const y = midY - (avgMagnitude * midY);
+      const y = midY - (scaledMagnitude * midY);
       ctx.lineTo(px, y);
     } else {
       ctx.lineTo(px, midY);
@@ -102,9 +192,12 @@ export function renderAmplitudeEnvelope(
 
       const avgMagnitude = count > 0 ? sumMagnitude / count : 0;
 
+      // Apply gain and clamp to [0, 1]
+      const scaledMagnitude = Math.min(1, avgMagnitude * gain);
+
       // Map magnitude [0, 1] to canvas y-coordinate
       // 0 magnitude = midY (center), max magnitude extends to bottom
-      const y = midY + (avgMagnitude * midY);
+      const y = midY + (scaledMagnitude * midY);
       ctx.lineTo(px, y);
     } else {
       ctx.lineTo(px, midY);
@@ -114,7 +207,7 @@ export function renderAmplitudeEnvelope(
   ctx.closePath();
   ctx.fill();
 
-  // Draw center line
+  // Draw center line for amplitude reference
   ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
   ctx.lineWidth = 1;
   ctx.beginPath();

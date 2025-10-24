@@ -30,6 +30,7 @@ export function TimeDomainView({
   wavFilePath,
 }: TimeDomainViewProps) {
   const [wavData, setWavData] = useState<WavData | null>(null);
+  const [gain, setGain] = useState(1); // Gain from 1 to 5
 
   // Load WAV file when path changes
   useEffect(() => {
@@ -79,14 +80,20 @@ export function TimeDomainView({
   const offsetToAngle = (offset: number) => ((offset + 5000) / 10000) * 360;
   const angleToOffset = (angle: number) => (angle / 360) * 10000 - 5000;
 
+  // Convert gain to angle (0-360 degrees)
+  // Map 1 to 5 -> 0 to 360 degrees
+  const gainToAngle = (g: number) => ((g - 1) / 4) * 360;
+  const angleToGain = (angle: number) => (angle / 360) * 4 + 1;
+
   // Render function wrapper for the amplitude envelope
   const handleRender = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
     renderAmplitudeEnvelope(ctx, width, height, {
       wavData,
       timeRange,
       timeOffset,
+      gain,
     });
-  }, [wavData, timeRange, timeOffset]);
+  }, [wavData, timeRange, timeOffset, gain]);
 
   return (
     <Card withBorder>
@@ -110,6 +117,16 @@ export function TimeDomainView({
               size={40}
               color="green"
               formatLabel={(angle) => `${Math.round(angleToOffset(angle))}ms`}
+            />
+          </Stack>
+          <Stack align="center" gap="xs">
+            <Text size="sm">Gain</Text>
+            <AngleSlider
+              value={gainToAngle(gain)}
+              onChange={(angle) => setGain(angleToGain(angle))}
+              size={40}
+              color="orange"
+              formatLabel={(angle) => `${angleToGain(angle).toFixed(1)}x`}
             />
           </Stack>
         </Group>
