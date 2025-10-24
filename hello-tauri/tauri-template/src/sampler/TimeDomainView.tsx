@@ -2,6 +2,8 @@ import { Card, Group, Text, Stack, AngleSlider } from "@mantine/core";
 import { CanvasChart } from "./CanvasChart.tsx";
 
 interface TimeDomainViewProps {
+  canvasWidth: number; // Canvas width in px
+  canvasHeight: number; // Canvas height in px
   timeRange: number; // Total time range in ms
   timeOffset: number; // Time offset in ms
   onTimeRangeChange: (range: number) => void;
@@ -9,14 +11,13 @@ interface TimeDomainViewProps {
 }
 
 export function TimeDomainView({
+  canvasWidth,
+  canvasHeight,
   timeRange,
   timeOffset,
   onTimeRangeChange,
   onTimeOffsetChange,
 }: TimeDomainViewProps) {
-  // Canvas dimensions
-  const canvasWidth = 800;
-  const canvasHeight = 200;
 
   // Coordinate system transforms
   // X-axis: Time range from timeOffset to timeOffset + timeRange
@@ -53,7 +54,7 @@ export function TimeDomainView({
             <AngleSlider
               value={rangeToAngle(timeRange)}
               onChange={(angle) => onTimeRangeChange(angleToRange(angle))}
-              size={80}
+              size={40}
               color="blue"
               formatLabel={(angle) => `${Math.round(angleToRange(angle))}ms`}
             />
@@ -63,7 +64,7 @@ export function TimeDomainView({
             <AngleSlider
               value={offsetToAngle(timeOffset)}
               onChange={(angle) => onTimeOffsetChange(angleToOffset(angle))}
-              size={80}
+              size={40}
               color="green"
               formatLabel={(angle) => `${Math.round(angleToOffset(angle))}ms`}
             />

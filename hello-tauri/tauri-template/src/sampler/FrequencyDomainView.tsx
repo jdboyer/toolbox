@@ -2,17 +2,18 @@ import { Card, Group, Text } from "@mantine/core";
 import { CanvasChart } from "./CanvasChart.tsx";
 
 interface FrequencyDomainViewProps {
+  canvasWidth: number; // Canvas width in px
+  canvasHeight: number; // Canvas height in px
   timeRange: number; // Total time range in ms
   timeOffset: number; // Time offset in ms
 }
 
 export function FrequencyDomainView({
+  canvasWidth,
+  canvasHeight,
   timeRange,
   timeOffset,
 }: FrequencyDomainViewProps) {
-  // Canvas dimensions
-  const canvasWidth = 800;
-  const canvasHeight = 200;
 
   // Coordinate system transforms
   // X-axis: Time range from timeOffset to timeOffset + timeRange

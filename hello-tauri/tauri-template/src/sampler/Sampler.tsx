@@ -8,6 +8,11 @@ import { FrequencyDomainView } from "./FrequencyDomainView";
 export function Sampler() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
+  // Canvas dimensions
+  const canvasWidth = 1400;
+  const timeDomainHeight = 100;
+  const frequencyDomainHeight = 400;
+
   // Time axis state (in milliseconds)
   const [timeRange, setTimeRange] = useState(4000); // Total time range visible (ms)
   const [timeOffset, setTimeOffset] = useState(0); // Time offset from 0 (ms)
@@ -50,6 +55,8 @@ export function Sampler() {
       </Group>
 
       <TimeDomainView
+        canvasWidth={canvasWidth}
+        canvasHeight={timeDomainHeight}
         timeRange={timeRange}
         timeOffset={timeOffset}
         onTimeRangeChange={setTimeRange}
@@ -57,6 +64,8 @@ export function Sampler() {
       />
 
       <FrequencyDomainView
+        canvasWidth={canvasWidth}
+        canvasHeight={frequencyDomainHeight}
         timeRange={timeRange}
         timeOffset={timeOffset}
       />
