@@ -12,7 +12,15 @@ interface WavData {
   duration_ms: number;
 }
 
-export function Sampler() {
+interface SamplerProps {
+  color0: string;
+  color1: string;
+  color2: string;
+  color3: string;
+  color4: string;
+}
+
+export function Sampler({ color0, color1, color2, color3, color4 }: SamplerProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [wavData, setWavData] = useState<WavData | null>(null);
 
@@ -101,6 +109,11 @@ export function Sampler() {
           timeOffset={timeOffset}
           wavFilePath={selectedFile}
           wavData={wavData}
+          color0={color0}
+          color1={color1}
+          color2={color2}
+          color3={color3}
+          color4={color4}
         />
       </div>
     </Stack>
