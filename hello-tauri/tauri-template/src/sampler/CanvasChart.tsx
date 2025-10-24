@@ -61,7 +61,9 @@ export function CanvasChart({
 
     // Call the render callback if provided
     if (onRender) {
+      ctx.save();
       onRender(ctx, width, height);
+      ctx.restore();
     } else {
       // Default rendering: gradient with grid that shows the time range
       const gradient = ctx.createLinearGradient(0, 0, width, height);

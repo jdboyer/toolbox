@@ -61,6 +61,7 @@ export function Sampler() {
         timeOffset={timeOffset}
         onTimeRangeChange={setTimeRange}
         onTimeOffsetChange={setTimeOffset}
+        wavFilePath={selectedFile}
       />
 
       <FrequencyDomainView

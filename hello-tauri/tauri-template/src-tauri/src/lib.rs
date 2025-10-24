@@ -2,6 +2,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tauri::State;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AudioDevice {
@@ -152,6 +153,73 @@ fn calculate_rms(samples: &[f32]) -> f32 {
     (sum_of_squares / samples.len() as f32).sqrt()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WavData {
+    samples: Vec<f32>,
+    sample_rate: u32,
+    duration_ms: f32,
+}
+
+#[tauri::command]
+fn read_wav_file(file_path: String) -> Result<WavData, String> {
+    let path = Path::new(&file_path);
+
+    let mut reader = hound::WavReader::open(path)
+        .map_err(|e| format!("Failed to open WAV file: {}", e))?;
+
+    let spec = reader.spec();
+    let sample_rate = spec.sample_rate;
+
+    // Read samples and convert to f32 in range [-1.0, 1.0]
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => {
+            reader.samples::<f32>()
+                .collect::<Result<Vec<f32>, _>>()
+                .map_err(|e| format!("Failed to read samples: {}", e))?
+        }
+        hound::SampleFormat::Int => {
+            match spec.bits_per_sample {
+                16 => {
+                    reader.samples::<i16>()
+                        .map(|s| s.map(|sample| sample as f32 / i16::MAX as f32))
+                        .collect::<Result<Vec<f32>, _>>()
+                        .map_err(|e| format!("Failed to read samples: {}", e))?
+                }
+                24 => {
+                    reader.samples::<i32>()
+                        .map(|s| s.map(|sample| sample as f32 / 8388608.0)) // 2^23
+                        .collect::<Result<Vec<f32>, _>>()
+                        .map_err(|e| format!("Failed to read samples: {}", e))?
+                }
+                32 => {
+                    reader.samples::<i32>()
+                        .map(|s| s.map(|sample| sample as f32 / i32::MAX as f32))
+                        .collect::<Result<Vec<f32>, _>>()
+                        .map_err(|e| format!("Failed to read samples: {}", e))?
+                }
+                _ => return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample))
+            }
+        }
+    };
+
+    // If stereo, mix down to mono by averaging channels
+    let mono_samples = if spec.channels == 2 {
+        samples.chunks(2)
+            .map(|chunk| (chunk[0] + chunk.get(1).unwrap_or(&0.0)) / 2.0)
+            .collect()
+    } else {
+        samples
+    };
+
+    let duration_ms = (mono_samples.len() as f32 / sample_rate as f32) * 1000.0;
+
+    Ok(WavData {
+        samples: mono_samples,
+        sample_rate,
+        duration_ms,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -162,7 +230,8 @@ pub fn run() {
             get_audio_devices,
             start_monitoring,
             stop_monitoring,
-            get_volume
+            get_volume,
+            read_wav_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
