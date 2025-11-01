@@ -1,4 +1,4 @@
-import { Card, Group, Text, Stack, Slider, Tooltip } from "@mantine/core";
+import { Card, Group, Text, Stack, Slider, RangeSlider, Tooltip } from "@mantine/core";
 import { CanvasChart } from "./CanvasChart.tsx";
 import { MagnitudeLegend } from "./MagnitudeLegend.tsx";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
@@ -327,38 +327,25 @@ export function FrequencyDomainView({
           </Group>
 
           {/* CQT Controls */}
-          <Group gap="md" grow>
-            <Tooltip label="Minimum frequency to analyze (lower bound of spectrogram)" withArrow>
-              <Stack gap={2}>
-                <Text size="xs" c="dimmed">fmin: {Math.round(fmin)} Hz</Text>
-                <Slider
-                  value={fmin}
-                  onChange={setFmin}
-                  min={32.7}
-                  max={200}
-                  step={0.1}
-                  color="violet"
-                  size="xs"
-                  label={(val) => `${Math.round(val)} Hz`}
-                />
-              </Stack>
-            </Tooltip>
-            <Tooltip label="Maximum frequency to analyze (upper bound of spectrogram)" withArrow>
-              <Stack gap={2}>
-                <Text size="xs" c="dimmed">fmax: {Math.round(fmax)} Hz</Text>
-                <Slider
-                  value={fmax}
-                  onChange={setFmax}
-                  min={1000}
-                  max={wavData ? wavData.sample_rate / 2 : 24000}
-                  step={1}
-                  color="pink"
-                  size="xs"
-                  label={(val) => `${Math.round(val)} Hz`}
-                />
-              </Stack>
-            </Tooltip>
-          </Group>
+          <Tooltip label="Frequency range to analyze (lower and upper bounds of spectrogram)" withArrow>
+            <Stack gap={2}>
+              <Text size="xs" c="dimmed">Frequency Range: {Math.round(fmin)} Hz - {Math.round(fmax)} Hz</Text>
+              <RangeSlider
+                value={[fmin, fmax]}
+                onChange={([newFmin, newFmax]) => {
+                  setFmin(newFmin);
+                  setFmax(newFmax);
+                }}
+                min={32.7}
+                max={wavData ? wavData.sample_rate / 2 : 24000}
+                step={0.1}
+                color="violet"
+                size="xs"
+                label={(val) => `${Math.round(val)} Hz`}
+                minRange={100}
+              />
+            </Stack>
+          </Tooltip>
           <Group gap="md" grow>
             <Tooltip label="Number of frequency bins per octave (higher = finer pitch resolution)" withArrow>
               <Stack gap={2}>
