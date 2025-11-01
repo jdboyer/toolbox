@@ -204,6 +204,11 @@ export class Transformer {
       // Copy samples from this block into the active input buffer
       this.copySamplesToInputBuffer(blockData);
 
+      // Check if the active input buffer is full after adding samples
+      if (this.activeInputBufferOffset >= this.config.inputBufferSize) {
+        this.nextInputBuffer();
+      }
+
       // Check if we've processed all blocks up to lastValidBlockIndex
       if (currentBlockIndex === lastValidBlockIndex) {
         break;
@@ -219,44 +224,45 @@ export class Transformer {
 
   /**
    * Copy samples from accumulator block into the active input buffer
-   * Handles buffer transitions with overlap when buffer becomes full
+   * Assumes the entire block will fit in the current buffer
    * @param samples Audio samples from an accumulator block
    */
   private copySamplesToInputBuffer(samples: Float32Array): void {
-    const samplesRemaining = samples.length;
-
     // Copy samples into staging buffer at the current offset
     this.stagingBuffer.set(samples, this.activeInputBufferOffset);
-    this.activeInputBufferOffset += samplesRemaining;
+    this.activeInputBufferOffset += samples.length;
+  }
 
-    // Check if the active input buffer is full
-    if (this.activeInputBufferOffset >= this.config.inputBufferSize) {
-      // Write the full staging buffer to the GPU buffer
-      const activeBuffer = this.inputBufferRing.getBuffer(this.activeInputBufferIndex);
-      this.device.queue.writeBuffer(
-        activeBuffer,
-        0,
-        this.stagingBuffer.buffer,
-        this.stagingBuffer.byteOffset,
-        this.stagingBuffer.byteLength
-      );
+  /**
+   * Transition to the next input buffer
+   * Writes the current staging buffer to GPU, copies overlap region to next buffer
+   */
+  private nextInputBuffer(): void {
+    // Write the full staging buffer to the GPU buffer
+    const activeBuffer = this.inputBufferRing.getBuffer(this.activeInputBufferIndex);
+    this.device.queue.writeBuffer(
+      activeBuffer,
+      0,
+      this.stagingBuffer.buffer,
+      this.stagingBuffer.byteOffset,
+      this.stagingBuffer.byteLength
+    );
 
-      // Move to the next buffer in the ring
-      this.activeInputBufferIndex = (this.activeInputBufferIndex + 1) % this.config.inputBufferCount;
+    // Move to the next buffer in the ring
+    this.activeInputBufferIndex = (this.activeInputBufferIndex + 1) % this.config.inputBufferCount;
 
-      // Copy the overlap region from the end of the previous buffer to the start of the next
-      const overlapStart = this.config.inputBufferSize - this.config.inputBufferOverlap;
-      const overlapData = this.stagingBuffer.subarray(
-        overlapStart,
-        this.config.inputBufferSize
-      );
+    // Copy the overlap region from the end of the previous buffer to the start of the next
+    const overlapStart = this.config.inputBufferSize - this.config.inputBufferOverlap;
+    const overlapData = this.stagingBuffer.subarray(
+      overlapStart,
+      this.config.inputBufferSize
+    );
 
-      // Copy overlap to the beginning of the staging buffer
-      this.stagingBuffer.set(overlapData, 0);
+    // Copy overlap to the beginning of the staging buffer
+    this.stagingBuffer.set(overlapData, 0);
 
-      // Set the offset to after the overlap region
-      this.activeInputBufferOffset = this.config.inputBufferOverlap;
-    }
+    // Set the offset to after the overlap region
+    this.activeInputBufferOffset = this.config.inputBufferOverlap;
   }
 
   /**
