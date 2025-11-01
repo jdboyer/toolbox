@@ -48,7 +48,7 @@ export class Analyzer {
     this.adapter = adapter;
     this.config = { ...DEFAULT_CONFIG };
     this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
-    this.transformer = new Transformer(this.accumulator);
+    this.transformer = new Transformer(this.device, this.accumulator);
   }
 
   /**
@@ -93,8 +93,11 @@ export class Analyzer {
 
     // If block size or max blocks changed, recreate the accumulator and transformer
     if (configChanged) {
+      // Destroy old transformer's WebGPU resources
+      this.transformer.destroy();
+
       this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
-      this.transformer = new Transformer(this.accumulator);
+      this.transformer = new Transformer(this.device, this.accumulator);
     }
   }
 
@@ -133,5 +136,13 @@ export class Analyzer {
    */
   reset(): void {
     this.accumulator.reset();
+  }
+
+  /**
+   * Cleanup and destroy all resources
+   * Should be called when the analyzer is no longer needed
+   */
+  destroy(): void {
+    this.transformer.destroy();
   }
 }
