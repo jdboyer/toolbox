@@ -244,13 +244,12 @@ export async function computeCQT(
     (audioData.length - kernel.maxKernelLength) / config.hopLength
   ) + 1;
 
-  // Initialize WebGPU
-  const adapter = await navigator.gpu?.requestAdapter();
-  if (!adapter) {
+  // Get shared WebGPU device
+  const { getGPUDevice } = await import("../scope/analyzer");
+  const device = await getGPUDevice();
+  if (!device) {
     throw new Error("WebGPU is not supported on this system");
   }
-
-  const device = await adapter.requestDevice();
 
   // Create buffers
   const audioBuffer = device.createBuffer({
@@ -350,14 +349,13 @@ export async function computeCQT(
   const magnitudes = new Float32Array(resultData);
   readbackBuffer.unmap();
 
-  // Cleanup
+  // Cleanup buffers (but NOT the shared device)
   audioBuffer.destroy();
   kernelBuffer.destroy();
   kernelLengthsBuffer.destroy();
   outputBuffer.destroy();
   readbackBuffer.destroy();
   paramsBuffer.destroy();
-  device.destroy();
 
   // Calculate time information
   const timeStep = config.hopLength / config.sampleRate;

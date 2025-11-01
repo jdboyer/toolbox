@@ -76,12 +76,9 @@ export function CanvasChart({
 
     // Call the render callback if provided
     if (onRender) {
-      const renderStart = performance.now();
       ctx.save();
       onRender(ctx, width, height);
       ctx.restore();
-      const renderEnd = performance.now();
-      console.log(`[CanvasChart] Effect setup: ${(renderStart - effectStart).toFixed(2)}ms, Render callback: ${(renderEnd - renderStart).toFixed(2)}ms, Total: ${(renderEnd - effectStart).toFixed(2)}ms`);
     } else {
       // Default rendering: gradient with grid that shows the time range
       const gradient = ctx.createLinearGradient(0, 0, width, height);

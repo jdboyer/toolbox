@@ -24,8 +24,6 @@ function getGridConfig(timeRangeMs: number, canvasWidth: number): GridConfig {
   // We want at least 160px between grid lines for readability
   const minPxBetweenLines = 160;
 
-  console.log('getGridConfig called:', { timeRangeMs, canvasWidth, pxPerSecond, minPxBetweenLines });
-
   // Possible intervals: 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s (smallest to largest)
   const intervals = [
     { ms: 10, format: (t: number) => `${t.toFixed(0)}ms` },
@@ -45,19 +43,15 @@ function getGridConfig(timeRangeMs: number, canvasWidth: number): GridConfig {
   for (let i = intervals.length - 1; i >= 0; i--) {
     const interval = intervals[i];
     const pxBetweenLines = (interval.ms / 1000) * pxPerSecond;
-    console.log(`Testing interval ${interval.ms}ms: pxBetweenLines=${pxBetweenLines}`);
     if (pxBetweenLines >= minPxBetweenLines) {
       selectedInterval = interval;
-      console.log(`Candidate interval: ${interval.ms}ms`);
       // Keep going to find smaller intervals
     } else {
       // This interval is too small, stop here
-      console.log(`Interval ${interval.ms}ms too small, stopping`);
       break;
     }
   }
 
-  console.log(`Final selected interval: ${selectedInterval.ms}ms`);
   return {
     intervalMs: selectedInterval.ms,
     labelFormat: selectedInterval.format,
@@ -73,13 +67,6 @@ function drawGrid(
   timeOffset: number
 ) {
   const config = getGridConfig(timeRange, width);
-
-  console.log('Grid config:', {
-    timeRange,
-    width,
-    intervalMs: config.intervalMs,
-    pxPerSecond: width / (timeRange / 1000),
-  });
 
   // Calculate the first grid line position (snap to interval)
   const firstGridTime = Math.ceil(timeOffset / config.intervalMs) * config.intervalMs;
