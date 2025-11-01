@@ -244,12 +244,13 @@ export async function computeCQT(
     (audioData.length - kernel.maxKernelLength) / config.hopLength
   ) + 1;
 
-  // Get shared WebGPU device
-  const { getGPUDevice } = await import("../scope/analyzer");
-  const device = await getGPUDevice();
-  if (!device) {
+  // Get shared WebGPU device from AnalyzerService
+  const AnalyzerService = (await import("../scope/analyzer-service")).default;
+  const analyzer = await AnalyzerService.getAnalyzer();
+  if (!analyzer) {
     throw new Error("WebGPU is not supported on this system");
   }
+  const device = analyzer.getDevice();
 
   // Create buffers
   const audioBuffer = device.createBuffer({

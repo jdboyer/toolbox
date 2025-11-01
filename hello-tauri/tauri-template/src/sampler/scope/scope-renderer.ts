@@ -1,8 +1,8 @@
-import { getGPUDevice, getPreferredCanvasFormat } from "./analyzer";
+import AnalyzerService from "./analyzer-service";
 
 /**
  * ScopeRenderer - A reusable WebGPU renderer for scope visualization
- * Uses the shared WebGPU device managed by analyzer.ts
+ * Uses the shared WebGPU device managed by AnalyzerService
  */
 export class ScopeRenderer {
   private device: GPUDevice | null = null;
@@ -16,12 +16,15 @@ export class ScopeRenderer {
    * Initialize the WebGPU renderer with the given canvas
    */
   async initialize(canvas: HTMLCanvasElement): Promise<boolean> {
-    // Get the shared GPU device
-    this.device = await getGPUDevice();
-    if (!this.device) {
-      console.error("Failed to get shared WebGPU device");
+    // Get the Analyzer instance (creates it if needed)
+    const analyzer = await AnalyzerService.getAnalyzer();
+    if (!analyzer) {
+      console.error("Failed to get Analyzer instance");
       return false;
     }
+
+    // Get the device from the Analyzer
+    this.device = analyzer.getDevice();
 
     // Get canvas context
     this.context = canvas.getContext("webgpu");
@@ -31,7 +34,7 @@ export class ScopeRenderer {
     }
 
     // Configure the canvas context
-    this.format = getPreferredCanvasFormat();
+    this.format = analyzer.getPreferredCanvasFormat();
     this.context.configure({
       device: this.device,
       format: this.format,
