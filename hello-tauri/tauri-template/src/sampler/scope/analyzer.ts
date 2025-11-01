@@ -1,3 +1,27 @@
+import { Accumulator } from "./accumulator";
+import { Transformer } from "./transformer";
+
+/**
+ * Configuration options for the Analyzer
+ */
+export interface AnalyzerConfig {
+  /** Sample rate in Hz (e.g., 44100, 48000) */
+  sampleRate: number;
+  /** Number of samples per block */
+  blockSize: number;
+  /** Maximum number of blocks in the ring buffer */
+  maxBlocks: number;
+}
+
+/**
+ * Default configuration values
+ */
+const DEFAULT_CONFIG: AnalyzerConfig = {
+  sampleRate: 48000,
+  blockSize: 2048,
+  maxBlocks: 128,
+};
+
 /**
  * Analyzer - Audio analysis engine using WebGPU
  *
@@ -10,6 +34,9 @@
 export class Analyzer {
   private device: GPUDevice;
   private adapter: GPUAdapter;
+  private accumulator: Accumulator;
+  private transformer: Transformer;
+  private config: AnalyzerConfig;
 
   /**
    * Create an Analyzer instance
@@ -19,6 +46,9 @@ export class Analyzer {
   constructor(device: GPUDevice, adapter: GPUAdapter) {
     this.device = device;
     this.adapter = adapter;
+    this.config = { ...DEFAULT_CONFIG };
+    this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
+    this.transformer = new Transformer(this.accumulator);
   }
 
   /**
@@ -47,5 +77,61 @@ export class Analyzer {
    */
   isReady(): boolean {
     return this.device !== null;
+  }
+
+  /**
+   * Configure the analyzer
+   * @param config Partial configuration object (only specified fields will be updated)
+   */
+  configureAnalyzer(config: Partial<AnalyzerConfig>): void {
+    const configChanged =
+      (config.blockSize !== undefined && config.blockSize !== this.config.blockSize) ||
+      (config.maxBlocks !== undefined && config.maxBlocks !== this.config.maxBlocks);
+
+    // Update configuration
+    this.config = { ...this.config, ...config };
+
+    // If block size or max blocks changed, recreate the accumulator and transformer
+    if (configChanged) {
+      this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
+      this.transformer = new Transformer(this.accumulator);
+    }
+  }
+
+  /**
+   * Process a buffer of audio samples
+   * @param samples Float32Array containing audio samples
+   */
+  processSamples(samples: Float32Array): void {
+    this.accumulator.addSamples(samples);
+    this.transformer.processBlocks();
+  }
+
+  /**
+   * Get the current configuration
+   */
+  getConfig(): AnalyzerConfig {
+    return { ...this.config };
+  }
+
+  /**
+   * Get the accumulator instance
+   */
+  getAccumulator(): Accumulator {
+    return this.accumulator;
+  }
+
+  /**
+   * Get the transformer instance
+   */
+  getTransformer(): Transformer {
+    return this.transformer;
+  }
+
+  /**
+   * Reset the accumulator to initial state
+   */
+  reset(): void {
+    this.accumulator.reset();
   }
 }
