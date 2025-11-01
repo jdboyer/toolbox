@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { TimeDomainView } from "./TimeDomainView";
-import { FrequencyDomainView } from "./FrequencyDomainView";
+// import { FrequencyDomainView } from "./FrequencyDomainView";
+import { ScopeView } from "./scope/ScopeView";
 
 interface WavData {
   samples: number[];
@@ -20,7 +21,7 @@ interface SamplerProps {
   color4: string;
 }
 
-export function Sampler({ color0, color1, color2, color3, color4 }: SamplerProps) {
+export function Sampler({ }: SamplerProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [wavData, setWavData] = useState<WavData | null>(null);
 
@@ -103,19 +104,9 @@ export function Sampler({ color0, color1, color2, color3, color4 }: SamplerProps
       />
 
       <div style={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <FrequencyDomainView
+        <ScopeView
           canvasWidth={canvasWidth}
-          timeRange={timeRange}
-          timeOffset={timeOffset}
-          wavFilePath={selectedFile}
-          wavData={wavData}
-          color0={color0}
-          color1={color1}
-          color2={color2}
-          color3={color3}
-          color4={color4}
-          onTimeRangeChange={setTimeRange}
-          onTimeOffsetChange={setTimeOffset}
+          canvasHeight={frequencyDomainHeight}
         />
       </div>
     </Stack>
