@@ -1,5 +1,6 @@
 import type { Accumulator } from "./accumulator";
 import { RingBuffer } from "./ring-buffer";
+import { WaveletTransform, type WaveletTransformConfig } from "./wavelet-transform";
 
 /**
  * Configuration options for the Transformer
@@ -58,6 +59,9 @@ export class Transformer {
   // Temporary staging buffer for copying samples to GPU
   private stagingBuffer: Float32Array;
 
+  // Wavelet transform for CQT computation
+  private waveletTransform: WaveletTransform;
+
   /**
    * Create a Transformer instance
    * @param device WebGPU device for creating buffers
@@ -86,6 +90,17 @@ export class Transformer {
       this.config.outputBufferCount,
       (index) => this.createOutputBuffer(index)
     );
+
+    // Create wavelet transform for CQT computation
+    // TODO: Make these configurable via TransformerConfig
+    const waveletConfig: WaveletTransformConfig = {
+      sampleRate: 48000, // Default sample rate
+      fmin: 32.7, // C1
+      fmax: 16000, // Upper frequency limit
+      binsPerOctave: 12,
+      hopLength: Math.floor(this.config.inputBufferSize / this.config.timeSliceCount),
+    };
+    this.waveletTransform = new WaveletTransform(this.device, waveletConfig);
   }
 
   /**
@@ -204,6 +219,9 @@ export class Transformer {
       // Copy samples from this block into the active input buffer
       this.copySamplesToInputBuffer(blockData);
 
+      // Perform the wavelet transform on the active input buffer
+      this.doTransform();
+
       // Check if the active input buffer is full after adding samples
       if (this.activeInputBufferOffset >= this.config.inputBufferSize) {
         this.nextInputBuffer();
@@ -231,6 +249,42 @@ export class Transformer {
     // Copy samples into staging buffer at the current offset
     this.stagingBuffer.set(samples, this.activeInputBufferOffset);
     this.activeInputBufferOffset += samples.length;
+  }
+
+  /**
+   * Perform wavelet transform (CQT) on the active input buffer
+   * Computes timeSliceCount CQTs with different offsets to populate one output buffer
+   */
+  private doTransform(): void {
+    // Get the current input and output buffers
+    const inputBuffer = this.inputBufferRing.getBuffer(this.activeInputBufferIndex);
+    const outputBuffer = this.outputBufferRing.getWriteBuffer();
+
+    // Calculate how many time frames to compute
+    const numFrames = this.config.timeSliceCount;
+
+    // Audio length is the current offset (how much we've filled so far)
+    const audioLength = this.activeInputBufferOffset;
+
+    // Create command encoder for this transform
+    const commandEncoder = this.device.createCommandEncoder({
+      label: "wavelet-transform-commands",
+    });
+
+    // Dispatch the CQT compute shader
+    this.waveletTransform.computeTransform(
+      inputBuffer,
+      outputBuffer,
+      audioLength,
+      numFrames,
+      commandEncoder,
+    );
+
+    // Submit the commands
+    this.device.queue.submit([commandEncoder.finish()]);
+
+    // Advance the output buffer ring write index
+    this.outputBufferRing.advanceWrite();
   }
 
   /**
@@ -293,5 +347,6 @@ export class Transformer {
   destroy(): void {
     this.destroyInputBuffers();
     this.destroyOutputBuffers();
+    this.waveletTransform.destroy();
   }
 }
