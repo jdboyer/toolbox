@@ -98,7 +98,10 @@ export function MagnitudeLegend({
     const normalizeMagnitude = (mag: number) => {
       if (magRange === 0) return 0;
       const gainedMag = mag * gain;
-      const normalized = Math.max(0, Math.min(1, (gainedMag - minMagnitude) / magRange));
+      // Apply gain to the range as well for consistent normalization
+      const gainedMin = minMagnitude * gain;
+      const gainedRange = magRange * gain;
+      const normalized = Math.max(0, Math.min(1, (gainedMag - gainedMin) / gainedRange));
       return Math.pow(normalized, 1 / colorCurve);
     };
 

@@ -154,10 +154,13 @@ export function renderSpectrogram(
   const magRange = spectrogramData.maxMagnitude - spectrogramData.minMagnitude;
   const normalizeMagnitude = (mag: number) => {
     if (magRange === 0) return 0;
-    // Apply gain first
+    // Apply gain to magnitude
     const gainedMag = mag * gain;
+    // Apply gain to the range as well for consistent normalization
+    const gainedMin = spectrogramData.minMagnitude * gain;
+    const gainedRange = magRange * gain;
     // Normalize to [0, 1]
-    const normalized = Math.max(0, Math.min(1, (gainedMag - spectrogramData.minMagnitude) / magRange));
+    const normalized = Math.max(0, Math.min(1, (gainedMag - gainedMin) / gainedRange));
     // Apply exponential curve: output = input^(1/colorCurve)
     // colorCurve > 1: compresses high values, expands low values (darker overall)
     // colorCurve < 1: expands high values, compresses low values (brighter overall)
