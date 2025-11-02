@@ -318,27 +318,35 @@ export class Transformer {
 
     // Early return if no blocks to process
     if (processBlockIndex === -1) {
+      console.log("No blocks to process (processBlockIndex=-1)");
       return;
     }
 
     const lastValidBlockIndex = this.accumulator.getLastValidBlockIndex();
     const maxBlocks = this.accumulator.getMaxBlocks();
 
+    console.log(`Processing blocks: processBlockIndex=${processBlockIndex}, lastValidBlockIndex=${lastValidBlockIndex}, maxBlocks=${maxBlocks}`);
+
     // Start from the first unprocessed block
     let currentBlockIndex = processBlockIndex;
 
     // Iterate through all unprocessed blocks
+    let blocksProcessed = 0;
+    let transformsRun = 0;
     while (true) {
       // Get the block data from accumulator
       const blockData = this.accumulator.getBlock(currentBlockIndex);
 
       // Copy samples from this block into the active input buffer
       this.copySamplesToInputBuffer(blockData);
+      blocksProcessed++;
 
       // Check if we've processed all blocks up to lastValidBlockIndex
       if (currentBlockIndex === lastValidBlockIndex) {
         // This is the last block - run transform one final time with whatever data we have
+        console.log(`Last block reached. Running final transform with ${this.activeInputBufferOffset} samples`);
         this.doTransform();
+        transformsRun++;
         break;
       }
 
@@ -348,10 +356,14 @@ export class Transformer {
       // Check if the active input buffer is full after adding samples
       if (this.activeInputBufferOffset >= this.config.inputBufferSize) {
         // Buffer is full - run transform and move to next buffer
+        console.log(`Input buffer full (${this.activeInputBufferOffset} samples). Running transform...`);
         this.doTransform();
+        transformsRun++;
         this.nextInputBuffer();
       }
     }
+
+    console.log(`Processed ${blocksProcessed} blocks, ran ${transformsRun} transforms`);
 
     // Mark all blocks as processed
     this.accumulator.markProcessed();
@@ -391,8 +403,11 @@ export class Transformer {
 
     // Skip transform if we don't have enough audio data
     if (numFrames <= 0 || audioLength < maxKernelLength) {
+      console.log(`Skipping transform: numFrames=${numFrames}, audioLength=${audioLength}, maxKernelLength=${maxKernelLength}`);
       return;
     }
+
+    console.log(`Running transform: audioLength=${audioLength}, numFrames=${numFrames}, writeIndex=${this.textureBufferRing.getWriteIndex()}`);
 
     // CRITICAL: Write the staging buffer to GPU BEFORE running the transform
     // Otherwise we'd be transforming an empty buffer!

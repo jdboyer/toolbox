@@ -86,9 +86,15 @@ export class Accumulator {
         this.activeBlockOffset = 0;
 
         // If we've wrapped around and are overwriting the first valid block,
-        // advance the first valid block index
+        // advance the first valid block index and process block index
         if (this.activeBlockIndex === this.firstValidBlockIndex) {
           this.firstValidBlockIndex = (this.firstValidBlockIndex + 1) % this.maxBlocks;
+
+          // If processBlockIndex is pointing to any of the old blocks that will be/are overwritten,
+          // update it to point to the new firstValidBlockIndex
+          if (this.processBlockIndex !== -1) {
+            this.processBlockIndex = this.firstValidBlockIndex;
+          }
         }
       }
     }

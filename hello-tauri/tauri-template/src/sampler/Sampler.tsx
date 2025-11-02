@@ -74,25 +74,31 @@ export function Sampler({ }: SamplerProps) {
         console.log("Resetting analyzer for new WAV file");
         analyzer.reset();
 
-        // Extract samples from t=0.8s to t=2s
-        const startTime = 0.8; // seconds
-        const endTime = 2.0; // seconds
+        // Use the entire sample
         const sampleRate = wavData.sample_rate;
 
-        const startSample = Math.floor(startTime * sampleRate);
-        const endSample = Math.floor(endTime * sampleRate);
+        // Get the actual block size from the analyzer
+        const analyzerConfig = analyzer.getConfig();
+        const blockSize = analyzerConfig.blockSize;
 
-        // Calculate the number of samples, ensuring it's divisible by 4096
-        let numSamples = endSample - startSample;
-        const blockSize = 4096;
+        // Calculate the number of samples, ensuring it's divisible by blockSize
+        let numSamples = wavData.samples.length;
         numSamples = Math.floor(numSamples / blockSize) * blockSize;
 
-        // Extract the samples
-        const extractedSamples = wavData.samples.slice(startSample, startSample + numSamples);
+        // Extract the samples (trim to block-aligned length)
+        const extractedSamples = wavData.samples.slice(0, numSamples);
 
-        console.log(`Extracted ${extractedSamples.length} samples from ${startTime}s to ${startTime + numSamples / sampleRate}s`);
+        // Find min/max without spreading (to avoid stack overflow on large arrays)
+        let minVal = extractedSamples[0];
+        let maxVal = extractedSamples[0];
+        for (let i = 1; i < extractedSamples.length; i++) {
+          if (extractedSamples[i] < minVal) minVal = extractedSamples[i];
+          if (extractedSamples[i] > maxVal) maxVal = extractedSamples[i];
+        }
+
+        console.log(`Using entire sample: ${extractedSamples.length} samples (${numSamples / sampleRate}s)`);
         console.log(`Sample rate: ${sampleRate} Hz`);
-        console.log(`Sample value range: ${Math.min(...extractedSamples)} to ${Math.max(...extractedSamples)}`);
+        console.log(`Sample value range: ${minVal} to ${maxVal}`);
 
         // TEST: Use the known-good CQT to verify our visualization
         console.log("=== RUNNING CQT TEST ===");
@@ -105,14 +111,34 @@ export function Sampler({ }: SamplerProps) {
           hopLength: 256,
         });
         console.log(`CQT Result: ${cqtResult.numBins} bins × ${cqtResult.numFrames} frames`);
-        console.log(`CQT data range: ${Math.min(...cqtResult.magnitudes)} to ${Math.max(...cqtResult.magnitudes)}`);
-        console.log(`Non-zero values: ${Array.from(cqtResult.magnitudes).filter(v => v > 0.001).length}`);
+
+        // Find min/max without spreading (to avoid stack overflow)
+        let cqtMin = cqtResult.magnitudes[0];
+        let cqtMax = cqtResult.magnitudes[0];
+        let nonZeroCount = 0;
+        for (let i = 0; i < cqtResult.magnitudes.length; i++) {
+          const val = cqtResult.magnitudes[i];
+          if (val < cqtMin) cqtMin = val;
+          if (val > cqtMax) cqtMax = val;
+          if (val > 0.001) nonZeroCount++;
+        }
+
+        console.log(`CQT data range: ${cqtMin} to ${cqtMax}`);
+        console.log(`Non-zero values: ${nonZeroCount}`);
 
         // Convert to Float32Array and send to analyzer
         const samplesFloat32 = new Float32Array(extractedSamples);
+
+        // Log accumulator state before processing
+        const accumulator = analyzer.getAccumulator();
+        console.log(`Accumulator config: blockSize=${accumulator.getBlockSize()}, maxBlocks=${accumulator.getMaxBlocks()}`);
+
         analyzer.processSamples(samplesFloat32);
 
         console.log("Samples sent to analyzer");
+
+        // Log accumulator state after processing
+        console.log(`Accumulator after processing: firstValid=${accumulator.getFirstValidBlockIndex()}, lastValid=${accumulator.getLastValidBlockIndex()}, processIndex=${accumulator.getProcessBlockIndex()}`);
 
         // Log transformer state
         const transformer = analyzer.getTransformer();
@@ -145,8 +171,20 @@ export function Sampler({ }: SamplerProps) {
 
           console.log(`=== WAVELET TRANSFORM OUTPUT BUFFER 0 ===`);
           console.log(`Buffer size: ${outputCopy.length} floats`);
-          console.log(`Data range: ${Math.min(...outputCopy)} to ${Math.max(...outputCopy)}`);
-          console.log(`Non-zero values: ${Array.from(outputCopy).filter(v => Math.abs(v) > 0.001).length}`);
+
+          // Find min/max and count non-zero values without spreading
+          let outMin = outputCopy[0];
+          let outMax = outputCopy[0];
+          let outNonZero = 0;
+          for (let i = 0; i < outputCopy.length; i++) {
+            const val = outputCopy[i];
+            if (val < outMin) outMin = val;
+            if (val > outMax) outMax = val;
+            if (Math.abs(val) > 0.001) outNonZero++;
+          }
+
+          console.log(`Data range: ${outMin} to ${outMax}`);
+          console.log(`Non-zero values: ${outNonZero}`);
           console.log(`First 20 values:`, Array.from(outputCopy.slice(0, 20)));
         }
 

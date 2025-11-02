@@ -148,14 +148,6 @@ export class ScopeRenderer {
         let tileU = (uv.x - f32(tileIndex) * tileWidth) / tileWidth;
         let tileV = 1.0 - uv.y; // Flip vertically so low frequencies are at bottom
 
-        // Border width (in UV space)
-        let borderWidth = 0.01;
-
-        // Check if we're in the border region
-        if (tileU < borderWidth || tileU > 1.0 - borderWidth) {
-          return vec4<f32>(0.3, 0.3, 0.3, 1.0); // Gray border
-        }
-
         // If we're beyond the tiles with data, show black
         if (tileIndex >= displayCount) {
           return vec4<f32>(0.0, 0.0, 0.0, 1.0);
