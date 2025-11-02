@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { ScopeRenderer } from "./scope-renderer";
+import AnalyzerService from "./analyzer-service";
 
 interface ScopeViewProps {
   canvasWidth: number;
@@ -8,20 +8,27 @@ interface ScopeViewProps {
 
 export function ScopeView({ canvasWidth, canvasHeight = 400 }: ScopeViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rendererRef = useRef<ScopeRenderer | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const initRenderer = async () => {
-      // Create and initialize the renderer
-      const renderer = new ScopeRenderer();
-      const initialized = await renderer.initialize(canvas);
+      // Get the analyzer instance
+      const analyzer = await AnalyzerService.getAnalyzer();
+      if (!analyzer) {
+        console.error("Failed to get Analyzer instance");
+        return;
+      }
+
+      // Initialize the scope renderer with the canvas
+      const initialized = await analyzer.initializeScopeRenderer(canvas);
 
       if (initialized) {
-        rendererRef.current = renderer;
-        renderer.startRendering();
+        const renderer = analyzer.getScopeRenderer();
+        if (renderer) {
+          renderer.startRendering();
+        }
       } else {
         console.error("Failed to initialize ScopeRenderer");
       }
@@ -29,12 +36,10 @@ export function ScopeView({ canvasWidth, canvasHeight = 400 }: ScopeViewProps) {
 
     initRenderer().catch(console.error);
 
-    // Cleanup
+    // Cleanup - the renderer is owned by the analyzer and will be cleaned up when it's destroyed
     return () => {
-      if (rendererRef.current) {
-        rendererRef.current.destroy();
-        rendererRef.current = null;
-      }
+      // We don't destroy the renderer here since it's owned by the analyzer
+      // The analyzer service manages the lifecycle
     };
   }, [canvasWidth, canvasHeight]);
 

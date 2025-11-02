@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { TimeDomainView } from "./TimeDomainView";
 // import { FrequencyDomainView } from "./FrequencyDomainView";
 import { ScopeView } from "./scope/ScopeView";
+import AnalyzerService from "./scope/analyzer-service";
 
 interface WavData {
   samples: number[];
@@ -55,6 +56,51 @@ export function Sampler({ }: SamplerProps) {
 
     loadWavFile();
   }, [selectedFile]);
+
+  // Process and send WAV data to analyzer when loaded
+  useEffect(() => {
+    if (!wavData) return;
+
+    const processWavData = async () => {
+      try {
+        // Get the analyzer instance
+        const analyzer = await AnalyzerService.getAnalyzer();
+        if (!analyzer) {
+          console.error("Failed to get Analyzer instance");
+          return;
+        }
+
+        // Extract samples from t=0.8s to t=2s
+        const startTime = 0.8; // seconds
+        const endTime = 2.0; // seconds
+        const sampleRate = wavData.sample_rate;
+
+        const startSample = Math.floor(startTime * sampleRate);
+        const endSample = Math.floor(endTime * sampleRate);
+
+        // Calculate the number of samples, ensuring it's divisible by 4096
+        let numSamples = endSample - startSample;
+        const blockSize = 4096;
+        numSamples = Math.floor(numSamples / blockSize) * blockSize;
+
+        // Extract the samples
+        const extractedSamples = wavData.samples.slice(startSample, startSample + numSamples);
+
+        console.log(`Extracted ${extractedSamples.length} samples from ${startTime}s to ${startTime + numSamples / sampleRate}s`);
+        console.log(`Sample rate: ${sampleRate} Hz`);
+
+        // Convert to Float32Array and send to analyzer
+        const samplesFloat32 = new Float32Array(extractedSamples);
+        analyzer.processSamples(samplesFloat32);
+
+        console.log("Samples sent to analyzer");
+      } catch (error) {
+        console.error("Failed to process WAV data:", error);
+      }
+    };
+
+    processWavData();
+  }, [wavData]);
 
   const handleSelectFile = async () => {
     console.log("handleSelectFile called");

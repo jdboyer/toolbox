@@ -18,6 +18,8 @@ export interface TransformerConfig {
   timeSliceCount: number;
   /** Number of output buffers in the ring buffer */
   outputBufferCount: number;
+  /** Number of textures in the texture buffer ring */
+  textureBufferCount: number;
 }
 
 /**
@@ -30,6 +32,7 @@ const DEFAULT_CONFIG: TransformerConfig = {
   frequencyBinCount: 1024,
   timeSliceCount: 64,
   outputBufferCount: 4,
+  textureBufferCount: 256,
 };
 
 /**
@@ -37,9 +40,10 @@ const DEFAULT_CONFIG: TransformerConfig = {
  *
  * The Transformer receives a reference to the Accumulator and processes
  * filled blocks in order, marking them as processed when complete.
- * It manages two ring buffers of WebGPU buffers:
+ * It manages three ring buffers of WebGPU resources:
  * - Input ring buffer: Contains audio sample data (float arrays)
  * - Output ring buffer: Contains frequency transform results (2D arrays: freq bins x time)
+ * - Texture ring buffer: Contains 2D textures for visualization (same dimensions as output)
  */
 export class Transformer {
   private device: GPUDevice;
@@ -51,6 +55,9 @@ export class Transformer {
 
   // Ring buffer for output frequency transform buffers
   private outputBufferRing: RingBuffer<GPUBuffer>;
+
+  // Ring buffer for texture buffers (for visualization)
+  private textureBufferRing: RingBuffer<GPUTexture>;
 
   // Track the current active input buffer index and sample offset
   private activeInputBufferIndex: number;
@@ -89,6 +96,12 @@ export class Transformer {
     this.outputBufferRing = new RingBuffer<GPUBuffer>(
       this.config.outputBufferCount,
       (index) => this.createOutputBuffer(index)
+    );
+
+    // Create texture buffer ring (for visualization)
+    this.textureBufferRing = new RingBuffer<GPUTexture>(
+      this.config.textureBufferCount,
+      (index) => this.createTexture(index)
     );
 
     // Create wavelet transform for CQT computation
@@ -134,6 +147,24 @@ export class Transformer {
   }
 
   /**
+   * Create a WebGPU texture for visualization
+   * @param index Texture index (for labeling/debugging)
+   */
+  private createTexture(index: number): GPUTexture {
+    // Texture has same 2D dimensions as output buffer
+    return this.device.createTexture({
+      label: `transformer-texture-${index}`,
+      size: {
+        width: this.config.timeSliceCount,
+        height: this.config.frequencyBinCount,
+        depthOrArrayLayers: 1,
+      },
+      format: "r32float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+  }
+
+  /**
    * Configure the transformer
    * @param config Partial configuration object (only specified fields will be updated)
    * Note: Changing buffer sizes or counts will destroy and recreate the ring buffers
@@ -152,6 +183,14 @@ export class Transformer {
         config.timeSliceCount !== this.config.timeSliceCount) ||
       (config.outputBufferCount !== undefined &&
         config.outputBufferCount !== this.config.outputBufferCount);
+
+    const textureConfigChanged =
+      (config.frequencyBinCount !== undefined &&
+        config.frequencyBinCount !== this.config.frequencyBinCount) ||
+      (config.timeSliceCount !== undefined &&
+        config.timeSliceCount !== this.config.timeSliceCount) ||
+      (config.textureBufferCount !== undefined &&
+        config.textureBufferCount !== this.config.textureBufferCount);
 
     // Update configuration
     this.config = { ...this.config, ...config };
@@ -173,6 +212,15 @@ export class Transformer {
         (index) => this.createOutputBuffer(index)
       );
     }
+
+    // Recreate textures if configuration changed
+    if (textureConfigChanged) {
+      this.destroyTextures();
+      this.textureBufferRing = new RingBuffer<GPUTexture>(
+        this.config.textureBufferCount,
+        (index) => this.createTexture(index)
+      );
+    }
   }
 
   /**
@@ -190,6 +238,15 @@ export class Transformer {
   private destroyOutputBuffers(): void {
     this.outputBufferRing.forEach((buffer) => {
       buffer.destroy();
+    });
+  }
+
+  /**
+   * Destroy all textures
+   */
+  private destroyTextures(): void {
+    this.textureBufferRing.forEach((texture) => {
+      texture.destroy();
     });
   }
 
@@ -254,11 +311,13 @@ export class Transformer {
   /**
    * Perform wavelet transform (CQT) on the active input buffer
    * Computes timeSliceCount CQTs with different offsets to populate one output buffer
+   * Also copies the result to a texture for visualization
    */
   private doTransform(): void {
     // Get the current input and output buffers
     const inputBuffer = this.inputBufferRing.getBuffer(this.activeInputBufferIndex);
     const outputBuffer = this.outputBufferRing.getWriteBuffer();
+    const texture = this.textureBufferRing.getWriteBuffer();
 
     // Calculate how many time frames to compute
     const numFrames = this.config.timeSliceCount;
@@ -280,11 +339,29 @@ export class Transformer {
       commandEncoder,
     );
 
+    // Copy the output buffer to the texture
+    commandEncoder.copyBufferToTexture(
+      {
+        buffer: outputBuffer,
+        bytesPerRow: this.config.timeSliceCount * Float32Array.BYTES_PER_ELEMENT,
+        rowsPerImage: this.config.frequencyBinCount,
+      },
+      {
+        texture: texture,
+      },
+      {
+        width: this.config.timeSliceCount,
+        height: this.config.frequencyBinCount,
+        depthOrArrayLayers: 1,
+      }
+    );
+
     // Submit the commands
     this.device.queue.submit([commandEncoder.finish()]);
 
-    // Advance the output buffer ring write index
+    // Advance both ring buffer write indices
     this.outputBufferRing.advanceWrite();
+    this.textureBufferRing.advanceWrite();
   }
 
   /**
@@ -341,12 +418,20 @@ export class Transformer {
   }
 
   /**
+   * Get the texture buffer ring
+   */
+  getTextureBufferRing(): RingBuffer<GPUTexture> {
+    return this.textureBufferRing;
+  }
+
+  /**
    * Cleanup and destroy all WebGPU resources
    * Should be called when the transformer is no longer needed
    */
   destroy(): void {
     this.destroyInputBuffers();
     this.destroyOutputBuffers();
+    this.destroyTextures();
     this.waveletTransform.destroy();
   }
 }

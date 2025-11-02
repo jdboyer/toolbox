@@ -1,5 +1,6 @@
 import { Accumulator } from "./accumulator";
 import { Transformer } from "./transformer";
+import { ScopeRenderer } from "./scope-renderer";
 
 /**
  * Configuration options for the Analyzer
@@ -37,6 +38,7 @@ export class Analyzer {
   private accumulator: Accumulator;
   private transformer: Transformer;
   private config: AnalyzerConfig;
+  private scopeRenderer: ScopeRenderer | null = null;
 
   /**
    * Create an Analyzer instance
@@ -132,6 +134,24 @@ export class Analyzer {
   }
 
   /**
+   * Initialize the scope renderer with a canvas
+   * @param canvas The canvas element to render to
+   */
+  async initializeScopeRenderer(canvas: HTMLCanvasElement): Promise<boolean> {
+    if (!this.scopeRenderer) {
+      this.scopeRenderer = new ScopeRenderer(this.device, this);
+    }
+    return await this.scopeRenderer.initialize(canvas);
+  }
+
+  /**
+   * Get the scope renderer instance (if initialized)
+   */
+  getScopeRenderer(): ScopeRenderer | null {
+    return this.scopeRenderer;
+  }
+
+  /**
    * Reset the accumulator to initial state
    */
   reset(): void {
@@ -143,6 +163,10 @@ export class Analyzer {
    * Should be called when the analyzer is no longer needed
    */
   destroy(): void {
+    if (this.scopeRenderer) {
+      this.scopeRenderer.destroy();
+      this.scopeRenderer = null;
+    }
     this.transformer.destroy();
   }
 }
