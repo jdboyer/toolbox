@@ -11,6 +11,8 @@ export class ScopeRenderer {
   private pipeline: GPURenderPipeline | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private frameCountsBuffer: GPUBuffer | null = null;
+  private bufferMetadataBuffer: GPUBuffer | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private animationFrameId: number | null = null;
   private isRendering = false;
@@ -44,11 +46,27 @@ export class ScopeRenderer {
       alphaMode: "opaque",
     });
 
-    // Create uniform buffer for dynamic parameters
+    // Create uniform buffer for activeTextureCount
     this.uniformBuffer = this.device.createBuffer({
       label: "scope-renderer-uniforms",
-      size: 16, // 4 bytes for u32 (textureCount) + 12 bytes padding
+      size: 16, // Single u32 with padding to 16 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // Create storage buffer for frame counts (more flexible than uniform for arrays)
+    const transformer = this.analyzer.getTransformer();
+    const maxBuffers = transformer.getConfig().outputBufferCount;
+    this.frameCountsBuffer = this.device.createBuffer({
+      label: "scope-renderer-frame-counts",
+      size: maxBuffers * 4, // Array of u32
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    // Create storage buffer for buffer metadata (bytesPerRow for each buffer)
+    this.bufferMetadataBuffer = this.device.createBuffer({
+      label: "scope-renderer-buffer-metadata",
+      size: maxBuffers * 4, // Array of u32
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
     // Create the render pipeline and bind group
@@ -63,8 +81,8 @@ export class ScopeRenderer {
    */
   private async createPipeline() {
     const transformer = this.analyzer.getTransformer();
-    const textureCount = transformer.getConfig().textureBufferCount;
-    console.log(`Creating pipeline with ${textureCount} textures`);
+    const bufferCount = transformer.getConfig().outputBufferCount;
+    console.log(`Creating pipeline with ${bufferCount} output buffers`);
 
     // Vertex shader - outputs full-screen quad with UV coordinates
     const vertexShaderCode = `
@@ -100,21 +118,21 @@ export class ScopeRenderer {
       }
     `;
 
-    // Fragment shader - loads from texture array and renders as spectrogram
-    // Note: Using textureLoad instead of textureSample because r32float is unfilterable
+    // Fragment shader - reads directly from output buffers and renders as spectrogram
     const fragmentShaderCode = `
-      @group(0) @binding(0) var textureArray: texture_2d_array<f32>;
-
       struct Uniforms {
-        activeTextureCount: u32,
+        activeBufferCount: u32,
+        numBins: u32,
+        timeSliceCount: u32,
+        readIndex: u32,  // Ring buffer read index (oldest buffer)
       };
-      @group(0) @binding(1) var<uniform> uniforms: Uniforms;
-
-      // Configuration constants
-      const hopLength = 256.0;
-      const inputBufferSize = 65536.0;
-      const inputBufferOverlap = 4096.0;
-      const timeSliceCount = 128;
+      @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+      @group(0) @binding(1) var<storage, read> frameCountsPerBuffer: array<u32>;
+      @group(0) @binding(2) var<storage, read> bytesPerRowPerBuffer: array<u32>;
+      @group(0) @binding(3) var<storage, read> outputBuffer0: array<f32>;
+      @group(0) @binding(4) var<storage, read> outputBuffer1: array<f32>;
+      @group(0) @binding(5) var<storage, read> outputBuffer2: array<f32>;
+      @group(0) @binding(6) var<storage, read> outputBuffer3: array<f32>;
 
       // Convert value to color using a spectrogram-like palette
       fn valueToColor(value: f32) -> vec3<f32> {
@@ -137,32 +155,81 @@ export class ScopeRenderer {
         }
       }
 
+      // Read a value from the appropriate buffer
+      // Output buffer layout: output[frame * numBins + bin] (column-major)
+      fn readFromBuffer(bufferIndex: u32, bin: u32, frame: u32) -> f32 {
+        // Calculate the index in the buffer
+        // Each row is aligned to 256 bytes, so we need to account for padding
+        let bytesPerRow = bytesPerRowPerBuffer[bufferIndex];
+        let floatsPerRow = bytesPerRow / 4u; // 4 bytes per f32
+        let index = frame * floatsPerRow + bin;
+
+        // Read from the appropriate buffer
+        if (bufferIndex == 0u) {
+          return outputBuffer0[index];
+        } else if (bufferIndex == 1u) {
+          return outputBuffer1[index];
+        } else if (bufferIndex == 2u) {
+          return outputBuffer2[index];
+        } else if (bufferIndex == 3u) {
+          return outputBuffer3[index];
+        }
+        return 0.0;
+      }
+
       @fragment
       fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-        // Simplified approach: just display textures sequentially without overlap handling for now
-        let displayCount = max(1u, uniforms.activeTextureCount);
+        let displayCount = max(1u, uniforms.activeBufferCount);
+        let ringSize = 4u; // Total number of buffers in ring (matches outputBufferCount)
 
-        // Calculate which texture we're in
-        let textureIndexFloat = uv.x * f32(displayCount);
-        let textureIndex = min(u32(textureIndexFloat), displayCount - 1u);
+        // Calculate total frames across all active buffers in chronological order
+        var totalFrames = 0u;
+        for (var i = 0u; i < displayCount; i = i + 1u) {
+          // Map chronological index to physical buffer index
+          let physicalIndex = (uniforms.readIndex + i) % ringSize;
+          totalFrames = totalFrames + frameCountsPerBuffer[physicalIndex];
+        }
 
-        // Position within this texture (0-1)
-        let posInTexture = fract(textureIndexFloat);
+        if (totalFrames == 0u) {
+          return vec4<f32>(0.0, 0.0, 0.0, 1.0); // Black if no data
+        }
 
-        // Get texture dimensions
-        let texDims = textureDimensions(textureArray);
+        // Map UV to absolute frame position
+        let absoluteFrame = uv.x * f32(totalFrames);
+
+        // Find which buffer contains this frame (in chronological order)
+        var frameOffset = 0u;
+        var chronologicalIndex = 0u;
+        var frameInBuffer = 0u;
+
+        for (var i = 0u; i < displayCount; i = i + 1u) {
+          // Map chronological index to physical buffer index
+          let physicalIndex = (uniforms.readIndex + i) % ringSize;
+          let framesInThisBuffer = frameCountsPerBuffer[physicalIndex];
+
+          if (absoluteFrame < f32(frameOffset + framesInThisBuffer)) {
+            chronologicalIndex = i;
+            frameInBuffer = u32(absoluteFrame) - frameOffset;
+            break;
+          }
+          frameOffset = frameOffset + framesInThisBuffer;
+        }
+
+        // Map chronological index to physical buffer index
+        let bufferIndex = (uniforms.readIndex + chronologicalIndex) % ringSize;
+
+        // Clamp to valid range
+        let actualFrameCount = frameCountsPerBuffer[bufferIndex];
+        frameInBuffer = min(frameInBuffer, actualFrameCount - 1u);
 
         // Vertical position maps to frequency (flipped)
         let tileV = 1.0 - uv.y;
 
-        // Map to texture coordinates
-        let texCoord = vec2<i32>(
-          clamp(i32(tileV * f32(texDims.x)), 0, i32(texDims.x) - 1),     // Frequency bin (X)
-          clamp(i32(posInTexture * f32(texDims.y)), 0, i32(texDims.y) - 1)  // Time frame (Y)
-        );
+        // Map to buffer coordinates
+        let binIndex = clamp(u32(tileV * f32(uniforms.numBins)), 0u, uniforms.numBins - 1u);
 
-        // Load from the texture array
-        let value = textureLoad(textureArray, texCoord, textureIndex, 0).r;
+        // Read from the buffer
+        let value = readFromBuffer(bufferIndex, binIndex, frameInBuffer);
 
         // Convert to color
         let color = valueToColor(value);
@@ -203,28 +270,66 @@ export class ScopeRenderer {
   }
 
   /**
-   * Create bind group with the texture array from the transformer
+   * Create bind group with the output buffers from the transformer
    */
   private createBindGroup() {
-    if (!this.pipeline || !this.uniformBuffer) return;
+    if (!this.pipeline || !this.uniformBuffer || !this.frameCountsBuffer || !this.bufferMetadataBuffer) return;
 
     const transformer = this.analyzer.getTransformer();
-    const textureArray = transformer.getTextureArray();
-    const textureCount = transformer.getConfig().textureBufferCount;
-    console.log(`Creating bind group with texture array (${textureCount} layers)`);
+    const outputBufferRing = transformer.getOutputBufferRing();
+    const bufferCount = transformer.getConfig().outputBufferCount;
+    console.log(`Creating bind group with ${bufferCount} output buffers`);
 
-    // Create the bind group with texture array and uniform buffer
+    // Get references to all output buffers in the ring
+    const outputBuffers: GPUBuffer[] = [];
+    for (let i = 0; i < bufferCount; i++) {
+      outputBuffers.push(outputBufferRing.getBuffer(i));
+    }
+
+    // Create the bind group with uniform buffer, metadata buffers, and output buffers
     this.bindGroup = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries: [
         {
           binding: 0,
-          resource: textureArray.createView(),
+          resource: {
+            buffer: this.uniformBuffer,
+          },
         },
         {
           binding: 1,
           resource: {
-            buffer: this.uniformBuffer,
+            buffer: this.frameCountsBuffer,
+          },
+        },
+        {
+          binding: 2,
+          resource: {
+            buffer: this.bufferMetadataBuffer,
+          },
+        },
+        {
+          binding: 3,
+          resource: {
+            buffer: outputBuffers[0],
+          },
+        },
+        {
+          binding: 4,
+          resource: {
+            buffer: outputBuffers[1],
+          },
+        },
+        {
+          binding: 5,
+          resource: {
+            buffer: outputBuffers[2],
+          },
+        },
+        {
+          binding: 6,
+          resource: {
+            buffer: outputBuffers[3],
           },
         },
       ],
@@ -260,13 +365,39 @@ export class ScopeRenderer {
     }
 
     try {
-      // Update uniform buffer with current write index
+      // Update uniform buffer with current buffer count
       const transformer = this.analyzer.getTransformer();
-      const writeIndex = transformer.getTextureBufferRing().getWriteIndex();
-      const activeCount = Math.max(1, writeIndex); // At least show 1 tile
+      const outputRing = transformer.getOutputBufferRing();
+      const activeCount = outputRing.getCount(); // Number of valid buffers currently in ring
+      if (activeCount === 0) {
+        // No data yet, skip rendering
+        if (this.isRendering) {
+          this.animationFrameId = requestAnimationFrame(this.renderFrame);
+        }
+        return;
+      }
+      const frameCounts = transformer.getOutputFrameCounts(); // Frame counts per buffer
 
-      const uniformData = new Uint32Array([activeCount]);
+      // Calculate bytesPerRow for each buffer (same for all buffers)
+      const numBins = transformer.getWaveletTransform().getNumBins();
+      const bytesPerRow = Math.ceil((numBins * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
+      const bytesPerRowArray = new Uint32Array(transformer.getConfig().outputBufferCount);
+      bytesPerRowArray.fill(bytesPerRow);
+
+      // Update uniform buffer with active count, numBins, timeSliceCount, and readIndex
+      const uniformData = new Uint32Array([
+        activeCount,
+        numBins,
+        transformer.getConfig().timeSliceCount,
+        outputRing.getReadIndex()  // Ring buffer read index (oldest data)
+      ]);
       this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+
+      // Update storage buffer with frame counts
+      this.device.queue.writeBuffer(this.frameCountsBuffer!, 0, frameCounts);
+
+      // Update storage buffer with bytesPerRow metadata
+      this.device.queue.writeBuffer(this.bufferMetadataBuffer!, 0, bytesPerRowArray);
 
       const commandEncoder = this.device.createCommandEncoder();
       const currentTexture = this.context.getCurrentTexture();
@@ -311,13 +442,32 @@ export class ScopeRenderer {
     }
 
     try {
-      // Update uniform buffer with current write index
+      // Update uniform buffer with current buffer count
       const transformer = this.analyzer.getTransformer();
-      const writeIndex = transformer.getTextureBufferRing().getWriteIndex();
-      const activeCount = Math.max(1, writeIndex);
+      const outputRing = transformer.getOutputBufferRing();
+      const activeCount = outputRing.getCount(); // Number of valid buffers currently in ring
+      if (activeCount === 0) {
+        // No data yet, skip rendering
+        return;
+      }
+      const frameCounts = transformer.getOutputFrameCounts();
 
-      const uniformData = new Uint32Array([activeCount]);
+      // Calculate bytesPerRow for each buffer
+      const numBins = transformer.getWaveletTransform().getNumBins();
+      const bytesPerRow = Math.ceil((numBins * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
+      const bytesPerRowArray = new Uint32Array(transformer.getConfig().outputBufferCount);
+      bytesPerRowArray.fill(bytesPerRow);
+
+      // Update buffers
+      const uniformData = new Uint32Array([
+        activeCount,
+        numBins,
+        transformer.getConfig().timeSliceCount,
+        outputRing.getReadIndex()  // Ring buffer read index (oldest data)
+      ]);
       this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+      this.device.queue.writeBuffer(this.frameCountsBuffer!, 0, frameCounts);
+      this.device.queue.writeBuffer(this.bufferMetadataBuffer!, 0, bytesPerRowArray);
 
       const commandEncoder = this.device.createCommandEncoder();
       const currentTexture = this.context.getCurrentTexture();
@@ -358,10 +508,18 @@ export class ScopeRenderer {
       this.context = null;
     }
 
-    // Destroy uniform buffer
+    // Destroy buffers
     if (this.uniformBuffer) {
       this.uniformBuffer.destroy();
       this.uniformBuffer = null;
+    }
+    if (this.frameCountsBuffer) {
+      this.frameCountsBuffer.destroy();
+      this.frameCountsBuffer = null;
+    }
+    if (this.bufferMetadataBuffer) {
+      this.bufferMetadataBuffer.destroy();
+      this.bufferMetadataBuffer = null;
     }
 
     // Clear references

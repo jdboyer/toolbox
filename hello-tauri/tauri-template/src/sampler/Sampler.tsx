@@ -143,11 +143,11 @@ export function Sampler({ }: SamplerProps) {
         // Log transformer state
         const transformer = analyzer.getTransformer();
         const outputRing = transformer.getOutputBufferRing();
-        const textureRing = transformer.getTextureBufferRing();
         const config = transformer.getConfig();
-        console.log(`Transformer config: ${config.frequencyBinCount} bins × ${config.timeSliceCount} slices`);
-        console.log(`Output ring count: ${outputRing.getCount()}, Texture ring count: ${textureRing.getCount()}`);
-        console.log(`Texture ring write index: ${textureRing.getWriteIndex()}, read index: ${textureRing.getReadIndex()}`);
+        const numBins = transformer.getWaveletTransform().getNumBins();
+        console.log(`Transformer config: ${numBins} bins × ${config.timeSliceCount} slices`);
+        console.log(`Output ring count: ${outputRing.getCount()}`);
+        console.log(`Output ring write index: ${outputRing.getWriteIndex()}, read index: ${outputRing.getReadIndex()}`);
 
         // Read back one output buffer to check the data
         if (outputRing.getCount() > 0) {

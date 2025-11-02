@@ -18,8 +18,6 @@ export interface TransformerConfig {
   timeSliceCount: number;
   /** Number of output buffers in the ring buffer */
   outputBufferCount: number;
-  /** Number of textures in the texture buffer ring */
-  textureBufferCount: number;
 }
 
 /**
@@ -29,15 +27,19 @@ export interface TransformerConfig {
  * Required samples = (numFrames - 1) * hopLength + maxKernelLength
  *                  = (128 - 1) * 256 + 24686 = 57,198
  * Rounded up to power of 2: 65,536
+ *
+ * Input buffer overlap is set to maxKernelLength to ensure continuity:
+ * - Each CQT frame requires maxKernelLength samples
+ * - Overlapping by this amount ensures no gaps between batches
+ * - This maintains time-frequency continuity across output buffers
  */
 const DEFAULT_CONFIG: TransformerConfig = {
   inputBufferSize: 65536,
   inputBufferCount: 2,
-  inputBufferOverlap: 0,  // No overlap for complete file processing (avoid duplicate transforms)
+  inputBufferOverlap: 24686,  // maxKernelLength - ensures continuous CQT computation across batches
   frequencyBinCount: 1024,
   timeSliceCount: 128,
   outputBufferCount: 4,
-  textureBufferCount: 256,
 };
 
 /**
@@ -61,11 +63,8 @@ export class Transformer {
   // Ring buffer for output frequency transform buffers
   private outputBufferRing: RingBuffer<GPUBuffer>;
 
-  // Ring buffer for texture buffers (for visualization)
-  private textureBufferRing: RingBuffer<GPUTexture>;
-
-  // Single 2D texture array for efficient rendering (holds all textures)
-  private textureArray: GPUTexture;
+  // Track the number of valid frames in each output buffer (for partial batches)
+  private outputFrameCounts: Uint32Array;
 
   // Track the current active input buffer index and sample offset
   private activeInputBufferIndex: number;
@@ -117,14 +116,8 @@ export class Transformer {
       (index) => this.createOutputBuffer(index)
     );
 
-    // Create texture buffer ring (for visualization)
-    this.textureBufferRing = new RingBuffer<GPUTexture>(
-      this.config.textureBufferCount,
-      (index) => this.createTexture(index)
-    );
-
-    // Create a single 2D texture array for efficient rendering
-    this.textureArray = this.createTextureArray();
+    // Initialize frame count tracking for output buffers
+    this.outputFrameCounts = new Uint32Array(this.config.outputBufferCount);
   }
 
   /**
@@ -162,43 +155,6 @@ export class Transformer {
     });
   }
 
-  /**
-   * Create a WebGPU texture for visualization
-   * @param index Texture index (for labeling/debugging)
-   */
-  private createTexture(index: number): GPUTexture {
-    // Texture dimensions match the actual CQT output
-    // Width = numBins (frequency bins), Height = numFrames (time slices)
-    const actualNumBins = this.waveletTransform.getNumBins();
-    return this.device.createTexture({
-      label: `transformer-texture-${index}`,
-      size: {
-        width: actualNumBins,
-        height: this.config.timeSliceCount,
-        depthOrArrayLayers: 1,
-      },
-      format: "r32float",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-  }
-
-  /**
-   * Create a 2D texture array that holds all visualization frames
-   */
-  private createTextureArray(): GPUTexture {
-    // Using actual CQT dimensions: width=numBins, height=numFrames
-    const actualNumBins = this.waveletTransform.getNumBins();
-    return this.device.createTexture({
-      label: "transformer-texture-array",
-      size: {
-        width: actualNumBins,
-        height: this.config.timeSliceCount,
-        depthOrArrayLayers: this.config.textureBufferCount,
-      },
-      format: "r32float",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-  }
 
   /**
    * Configure the transformer
@@ -220,14 +176,6 @@ export class Transformer {
       (config.outputBufferCount !== undefined &&
         config.outputBufferCount !== this.config.outputBufferCount);
 
-    const textureConfigChanged =
-      (config.frequencyBinCount !== undefined &&
-        config.frequencyBinCount !== this.config.frequencyBinCount) ||
-      (config.timeSliceCount !== undefined &&
-        config.timeSliceCount !== this.config.timeSliceCount) ||
-      (config.textureBufferCount !== undefined &&
-        config.textureBufferCount !== this.config.textureBufferCount);
-
     // Update configuration
     this.config = { ...this.config, ...config };
 
@@ -247,17 +195,7 @@ export class Transformer {
         this.config.outputBufferCount,
         (index) => this.createOutputBuffer(index)
       );
-    }
-
-    // Recreate textures if configuration changed
-    if (textureConfigChanged) {
-      this.destroyTextures();
-      this.textureArray.destroy();
-      this.textureBufferRing = new RingBuffer<GPUTexture>(
-        this.config.textureBufferCount,
-        (index) => this.createTexture(index)
-      );
-      this.textureArray = this.createTextureArray();
+      this.outputFrameCounts = new Uint32Array(this.config.outputBufferCount);
     }
   }
 
@@ -273,12 +211,14 @@ export class Transformer {
     // Clear staging buffer
     this.stagingBuffer.fill(0);
 
+    // Reset frame counts
+    this.outputFrameCounts.fill(0);
+
     // Reset all ring buffers
     this.inputBufferRing.reset();
     this.outputBufferRing.reset();
-    this.textureBufferRing.reset();
 
-    // Note: We don't need to clear the GPU buffers/textures themselves
+    // Note: We don't need to clear the GPU buffers themselves
     // as they will be overwritten when new data is processed
   }
 
@@ -300,14 +240,6 @@ export class Transformer {
     });
   }
 
-  /**
-   * Destroy all textures
-   */
-  private destroyTextures(): void {
-    this.textureBufferRing.forEach((texture) => {
-      texture.destroy();
-    });
-  }
 
   /**
    * Process blocks from the accumulator
@@ -337,6 +269,16 @@ export class Transformer {
       // Get the block data from accumulator
       const blockData = this.accumulator.getBlock(currentBlockIndex);
 
+      // Check if adding this block would overflow the buffer
+      const blockSize = blockData.length;
+      if (this.activeInputBufferOffset + blockSize > this.config.inputBufferSize) {
+        // Not enough space - run transform and move to next buffer first
+        console.log(`Input buffer would overflow (${this.activeInputBufferOffset} + ${blockSize} > ${this.config.inputBufferSize}). Running transform...`);
+        this.doTransform();
+        transformsRun++;
+        this.nextInputBuffer();
+      }
+
       // Copy samples from this block into the active input buffer
       this.copySamplesToInputBuffer(blockData);
       blocksProcessed++;
@@ -352,15 +294,6 @@ export class Transformer {
 
       // Move to next block (with wrapping)
       currentBlockIndex = (currentBlockIndex + 1) % maxBlocks;
-
-      // Check if the active input buffer is full after adding samples
-      if (this.activeInputBufferOffset >= this.config.inputBufferSize) {
-        // Buffer is full - run transform and move to next buffer
-        console.log(`Input buffer full (${this.activeInputBufferOffset} samples). Running transform...`);
-        this.doTransform();
-        transformsRun++;
-        this.nextInputBuffer();
-      }
     }
 
     console.log(`Processed ${blocksProcessed} blocks, ran ${transformsRun} transforms`);
@@ -425,12 +358,11 @@ export class Transformer {
     while (frameOffset < totalFrames) {
       const numFrames = Math.min(this.config.timeSliceCount, totalFrames - frameOffset);
 
-      // Get the output buffers and textures for this batch
+      // Get the output buffer for this batch
       const outputBuffer = this.outputBufferRing.getWriteBuffer();
-      const texture = this.textureBufferRing.getWriteBuffer();
-      const textureArrayIndex = this.textureBufferRing.getWriteIndex();
+      const outputBufferIndex = this.outputBufferRing.getWriteIndex();
 
-      console.log(`  Batch: frameOffset=${frameOffset}, numFrames=${numFrames}, textureIndex=${textureArrayIndex}`);
+      console.log(`  Batch: frameOffset=${frameOffset}, numFrames=${numFrames}, bufferIndex=${outputBufferIndex}`);
 
       // Create command encoder for this transform
       const commandEncoder = this.device.createCommandEncoder({
@@ -447,52 +379,14 @@ export class Transformer {
         frameOffset,
       );
 
-      // Copy the output buffer to the texture
-      // Buffer layout: output[frame * numBins + bin] (column-major)
-      // Texture layout: width=numBins, height=numFrames
-      const actualNumBins = this.waveletTransform.getNumBins();
-      const bytesPerRow = Math.ceil((actualNumBins * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
-
-      commandEncoder.copyBufferToTexture(
-        {
-          buffer: outputBuffer,
-          bytesPerRow: bytesPerRow,
-          rowsPerImage: numFrames,
-        },
-        {
-          texture: texture,
-        },
-        {
-          width: actualNumBins,
-          height: numFrames,
-          depthOrArrayLayers: 1,
-        }
-      );
-
-      // Also copy to the texture array at the appropriate layer
-      commandEncoder.copyBufferToTexture(
-        {
-          buffer: outputBuffer,
-          bytesPerRow: bytesPerRow,
-          rowsPerImage: numFrames,
-        },
-        {
-          texture: this.textureArray,
-          origin: { x: 0, y: 0, z: textureArrayIndex },
-        },
-        {
-          width: actualNumBins,
-          height: numFrames,
-          depthOrArrayLayers: 1,
-        }
-      );
-
-      // Submit the commands
+      // Submit the commands (no need to copy to texture anymore)
       this.device.queue.submit([commandEncoder.finish()]);
 
-      // Advance both ring buffer write indices
+      // Store the actual frame count for this output buffer
+      this.outputFrameCounts[outputBufferIndex] = numFrames;
+
+      // Advance output buffer ring write index
       this.outputBufferRing.advanceWrite();
-      this.textureBufferRing.advanceWrite();
 
       // Move to next batch
       frameOffset += numFrames;
@@ -553,17 +447,17 @@ export class Transformer {
   }
 
   /**
-   * Get the texture buffer ring
+   * Get the frame counts for each output buffer (how many valid frames each buffer contains)
    */
-  getTextureBufferRing(): RingBuffer<GPUTexture> {
-    return this.textureBufferRing;
+  getOutputFrameCounts(): Uint32Array {
+    return this.outputFrameCounts;
   }
 
   /**
-   * Get the texture array
+   * Get the wavelet transform instance
    */
-  getTextureArray(): GPUTexture {
-    return this.textureArray;
+  getWaveletTransform(): WaveletTransform {
+    return this.waveletTransform;
   }
 
   /**
@@ -573,8 +467,6 @@ export class Transformer {
   destroy(): void {
     this.destroyInputBuffers();
     this.destroyOutputBuffers();
-    this.destroyTextures();
-    this.textureArray.destroy();
     this.waveletTransform.destroy();
   }
 }
