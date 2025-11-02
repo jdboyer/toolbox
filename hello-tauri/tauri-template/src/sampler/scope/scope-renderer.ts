@@ -99,9 +99,11 @@ export class ScopeRenderer {
 
       // Convert value to color using a spectrogram-like palette
       fn valueToColor(value: f32) -> vec3<f32> {
-        // Logarithmic scaling for better visualization
-        let logValue = log2(max(abs(value), 0.00001));
-        let scaled = clamp((logValue + 20.0) / 20.0, 0.0, 1.0);
+        // More aggressive scaling to see the data better
+        let absValue = abs(value);
+
+        // Linear scaling with adjustable range
+        let scaled = clamp(absValue * 50.0, 0.0, 1.0);
 
         // Hot colormap: black -> red -> yellow -> white
         if (scaled < 0.33) {
@@ -118,31 +120,48 @@ export class ScopeRenderer {
 
       @fragment
       fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-        // DEBUG: Uncomment to test if shader is running
-        // return vec4<f32>(uv.x, uv.y, 0.5, 1.0);
+        // Each texture is displayed as a vertical tile
+        // uv.x (0-1) = horizontal position across all tiles
+        // uv.y (0-1) = vertical position (same for all tiles)
 
-        // Show only the most recent 64 textures
-        let displayCount = 64u;
         let totalCount = ${textureCount}u;
-
+        let displayCount = 84u;  // Only show the first 84 tiles (which have data)
         let tileWidth = 1.0 / f32(displayCount);
+
+        // Which tile are we in?
         let tileIndex = u32(uv.x / tileWidth);
 
-        // Just show the first 64 textures for now (simplify)
-        let actualIndex = min(tileIndex, totalCount - 1u);
-
+        // Position within this tile (0-1)
         let tileU = (uv.x - f32(tileIndex) * tileWidth) / tileWidth;
         let tileV = 1.0 - uv.y; // Flip vertically so low frequencies are at bottom
 
+        // Border width (in UV space)
+        let borderWidth = 0.01;
+
+        // Check if we're in the border region
+        if (tileU < borderWidth || tileU > 1.0 - borderWidth) {
+          return vec4<f32>(0.3, 0.3, 0.3, 1.0); // Gray border
+        }
+
+        // If we're beyond the tiles with data, show black
+        if (tileIndex >= displayCount) {
+          return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        }
+
         // Get texture dimensions
+        // Texture layout: width=numBins (frequency), height=numFrames (time)
         let texDims = textureDimensions(textureArray);
+
+        // Map tile UV to texture coordinates
+        // Buffer is column-major: output[frame * numBins + bin]
+        // Each row in the texture = one bin across all frames
         let texCoord = vec2<i32>(
-          clamp(i32(tileU * f32(texDims.x)), 0, i32(texDims.x) - 1),
-          clamp(i32(tileV * f32(texDims.y)), 0, i32(texDims.y) - 1)
+          clamp(i32(tileV * f32(texDims.x)), 0, i32(texDims.x) - 1),  // Frequency bin (X in texture)
+          clamp(i32(tileU * f32(texDims.y)), 0, i32(texDims.y) - 1)   // Time frame (Y in texture)
         );
 
-        // Load from the texture array (no filtering)
-        let value = textureLoad(textureArray, texCoord, actualIndex, 0).r;
+        // Load from the texture array
+        let value = textureLoad(textureArray, texCoord, tileIndex, 0).r;
 
         // Convert to color
         let color = valueToColor(value);

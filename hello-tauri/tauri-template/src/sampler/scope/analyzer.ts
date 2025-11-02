@@ -1,6 +1,6 @@
-import { Accumulator } from "./accumulator";
-import { Transformer } from "./transformer";
-import { ScopeRenderer } from "./scope-renderer";
+import { Accumulator } from "./accumulator.ts";
+import { Transformer } from "./transformer.ts";
+import { ScopeRenderer } from "./scope-renderer.ts";
 
 /**
  * Configuration options for the Analyzer

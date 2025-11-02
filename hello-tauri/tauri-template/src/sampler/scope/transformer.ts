@@ -1,6 +1,6 @@
-import type { Accumulator } from "./accumulator";
-import { RingBuffer } from "./ring-buffer";
-import { WaveletTransform, type WaveletTransformConfig } from "./wavelet-transform";
+import type { Accumulator } from "./accumulator.ts";
+import { RingBuffer } from "./ring-buffer.ts";
+import { WaveletTransform, type WaveletTransformConfig } from "./wavelet-transform.ts";
 
 /**
  * Configuration options for the Transformer
@@ -24,13 +24,18 @@ export interface TransformerConfig {
 
 /**
  * Default configuration values
+ *
+ * To compute 128 frames with hopLength=256 and maxKernelLength=24686:
+ * Required samples = (numFrames - 1) * hopLength + maxKernelLength
+ *                  = (128 - 1) * 256 + 24686 = 57,198
+ * Rounded up to power of 2: 65,536
  */
 const DEFAULT_CONFIG: TransformerConfig = {
-  inputBufferSize: 16384,
+  inputBufferSize: 65536,
   inputBufferCount: 2,
   inputBufferOverlap: 4096,
   frequencyBinCount: 1024,
-  timeSliceCount: 64,
+  timeSliceCount: 128,
   outputBufferCount: 4,
   textureBufferCount: 256,
 };
@@ -89,6 +94,17 @@ export class Transformer {
     // Create staging buffer for copying samples to GPU
     this.stagingBuffer = new Float32Array(this.config.inputBufferSize);
 
+    // Create wavelet transform for CQT computation FIRST (needed for buffer/texture creation)
+    // TODO: Make these configurable via TransformerConfig
+    const waveletConfig: WaveletTransformConfig = {
+      sampleRate: 48000, // Default sample rate
+      fmin: 32.7, // C1
+      fmax: 16000, // Upper frequency limit
+      binsPerOctave: 12,
+      hopLength: 256, // Fixed hop length to match reference CQT
+    };
+    this.waveletTransform = new WaveletTransform(this.device, waveletConfig);
+
     // Create input buffer ring (for audio samples)
     this.inputBufferRing = new RingBuffer<GPUBuffer>(
       this.config.inputBufferCount,
@@ -109,17 +125,6 @@ export class Transformer {
 
     // Create a single 2D texture array for efficient rendering
     this.textureArray = this.createTextureArray();
-
-    // Create wavelet transform for CQT computation
-    // TODO: Make these configurable via TransformerConfig
-    const waveletConfig: WaveletTransformConfig = {
-      sampleRate: 48000, // Default sample rate
-      fmin: 32.7, // C1
-      fmax: 16000, // Upper frequency limit
-      binsPerOctave: 12,
-      hopLength: Math.floor(this.config.inputBufferSize / this.config.timeSliceCount),
-    };
-    this.waveletTransform = new WaveletTransform(this.device, waveletConfig);
   }
 
   /**
@@ -141,10 +146,14 @@ export class Transformer {
    * @param index Buffer index (for labeling/debugging)
    */
   private createOutputBuffer(index: number): GPUBuffer {
-    // Output is a 2D array: frequencyBinCount x timeSliceCount
-    // Need to account for bytesPerRow alignment (must be multiple of 256)
-    const bytesPerRow = Math.ceil((this.config.timeSliceCount * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
-    const byteSize = bytesPerRow * this.config.frequencyBinCount;
+    // Output is a 2D array: numFrames x numBins (column-major)
+    // Use the actual number of bins from the CQT, not the config
+    const actualNumBins = this.waveletTransform.getNumBins();
+    const numFrames = this.config.timeSliceCount;
+
+    // Calculate bytes per row with 256-byte alignment (required for buffer-to-texture)
+    const bytesPerRow = Math.ceil((actualNumBins * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
+    const byteSize = bytesPerRow * numFrames;
 
     return this.device.createBuffer({
       label: `transformer-output-buffer-${index}`,
@@ -158,13 +167,14 @@ export class Transformer {
    * @param index Texture index (for labeling/debugging)
    */
   private createTexture(index: number): GPUTexture {
-    // Texture has same 2D dimensions as output buffer
-    // Using r32float to match the buffer data format (unfilterable, use textureLoad)
+    // Texture dimensions match the actual CQT output
+    // Width = numBins (frequency bins), Height = numFrames (time slices)
+    const actualNumBins = this.waveletTransform.getNumBins();
     return this.device.createTexture({
       label: `transformer-texture-${index}`,
       size: {
-        width: this.config.timeSliceCount,
-        height: this.config.frequencyBinCount,
+        width: actualNumBins,
+        height: this.config.timeSliceCount,
         depthOrArrayLayers: 1,
       },
       format: "r32float",
@@ -176,12 +186,13 @@ export class Transformer {
    * Create a 2D texture array that holds all visualization frames
    */
   private createTextureArray(): GPUTexture {
-    // Using r32float to match the buffer data format (unfilterable, use textureLoad)
+    // Using actual CQT dimensions: width=numBins, height=numFrames
+    const actualNumBins = this.waveletTransform.getNumBins();
     return this.device.createTexture({
       label: "transformer-texture-array",
       size: {
-        width: this.config.timeSliceCount,
-        height: this.config.frequencyBinCount,
+        width: actualNumBins,
+        height: this.config.timeSliceCount,
         depthOrArrayLayers: this.config.textureBufferCount,
       },
       format: "r32float",
@@ -303,21 +314,22 @@ export class Transformer {
       // Copy samples from this block into the active input buffer
       this.copySamplesToInputBuffer(blockData);
 
-      // Perform the wavelet transform on the active input buffer
-      this.doTransform();
-
-      // Check if the active input buffer is full after adding samples
-      if (this.activeInputBufferOffset >= this.config.inputBufferSize) {
-        this.nextInputBuffer();
-      }
-
       // Check if we've processed all blocks up to lastValidBlockIndex
       if (currentBlockIndex === lastValidBlockIndex) {
+        // This is the last block - run transform one final time with whatever data we have
+        this.doTransform();
         break;
       }
 
       // Move to next block (with wrapping)
       currentBlockIndex = (currentBlockIndex + 1) % maxBlocks;
+
+      // Check if the active input buffer is full after adding samples
+      if (this.activeInputBufferOffset >= this.config.inputBufferSize) {
+        // Buffer is full - run transform and move to next buffer
+        this.doTransform();
+        this.nextInputBuffer();
+      }
     }
 
     // Mark all blocks as processed
@@ -341,17 +353,41 @@ export class Transformer {
    * Also copies the result to a texture for visualization
    */
   private doTransform(): void {
-    // Get the current input and output buffers
+    // Audio length is the current offset (how much we've filled so far)
+    const audioLength = this.activeInputBufferOffset;
+
+    // Get parameters from the wavelet transform (single source of truth)
+    const hopLength = this.waveletTransform.getHopLength();
+    const maxKernelLength = this.waveletTransform.getMaxKernelLength();
+
+    // Calculate how many time frames to compute using CQT formula
+    // We need at least maxKernelLength samples before we can compute the first frame
+    // CQT formula: (audioLength - maxKernelLength) / hopLength + 1
+    const numFrames = Math.min(
+      this.config.timeSliceCount,
+      Math.max(0, Math.floor((audioLength - maxKernelLength) / hopLength) + 1)
+    );
+
+    // Skip transform if we don't have enough audio data
+    if (numFrames <= 0 || audioLength < maxKernelLength) {
+      return;
+    }
+
+    // CRITICAL: Write the staging buffer to GPU BEFORE running the transform
+    // Otherwise we'd be transforming an empty buffer!
     const inputBuffer = this.inputBufferRing.getBuffer(this.activeInputBufferIndex);
+    this.device.queue.writeBuffer(
+      inputBuffer,
+      0,
+      this.stagingBuffer.buffer,
+      this.stagingBuffer.byteOffset,
+      this.stagingBuffer.byteLength
+    );
+
+    // Get the output buffers and textures
     const outputBuffer = this.outputBufferRing.getWriteBuffer();
     const texture = this.textureBufferRing.getWriteBuffer();
     const textureArrayIndex = this.textureBufferRing.getWriteIndex();
-
-    // Calculate how many time frames to compute
-    const numFrames = this.config.timeSliceCount;
-
-    // Audio length is the current offset (how much we've filled so far)
-    const audioLength = this.activeInputBufferOffset;
 
     // Create command encoder for this transform
     const commandEncoder = this.device.createCommandEncoder({
@@ -368,21 +404,23 @@ export class Transformer {
     );
 
     // Copy the output buffer to the texture
-    // bytesPerRow must be a multiple of 256 for WebGPU
-    const bytesPerRow = Math.ceil((this.config.timeSliceCount * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
+    // Buffer layout: output[frame * numBins + bin] (column-major)
+    // Texture layout: width=numBins, height=numFrames
+    const actualNumBins = this.waveletTransform.getNumBins();
+    const bytesPerRow = Math.ceil((actualNumBins * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
 
     commandEncoder.copyBufferToTexture(
       {
         buffer: outputBuffer,
         bytesPerRow: bytesPerRow,
-        rowsPerImage: this.config.frequencyBinCount,
+        rowsPerImage: this.config.timeSliceCount,
       },
       {
         texture: texture,
       },
       {
-        width: this.config.timeSliceCount,
-        height: this.config.frequencyBinCount,
+        width: actualNumBins,
+        height: this.config.timeSliceCount,
         depthOrArrayLayers: 1,
       }
     );
@@ -392,15 +430,15 @@ export class Transformer {
       {
         buffer: outputBuffer,
         bytesPerRow: bytesPerRow,
-        rowsPerImage: this.config.frequencyBinCount,
+        rowsPerImage: this.config.timeSliceCount,
       },
       {
         texture: this.textureArray,
         origin: { x: 0, y: 0, z: textureArrayIndex },
       },
       {
-        width: this.config.timeSliceCount,
-        height: this.config.frequencyBinCount,
+        width: actualNumBins,
+        height: this.config.timeSliceCount,
         depthOrArrayLayers: 1,
       }
     );

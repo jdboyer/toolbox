@@ -90,6 +90,20 @@ export function Sampler({ }: SamplerProps) {
         console.log(`Sample rate: ${sampleRate} Hz`);
         console.log(`Sample value range: ${Math.min(...extractedSamples)} to ${Math.max(...extractedSamples)}`);
 
+        // TEST: Use the known-good CQT to verify our visualization
+        console.log("=== RUNNING CQT TEST ===");
+        const { computeCQT } = await import("./cqt/cqt");
+        const cqtResult = await computeCQT(new Float32Array(extractedSamples), {
+          sampleRate: sampleRate,
+          fmin: 32.7,
+          fmax: 16000,
+          binsPerOctave: 12,
+          hopLength: 256,
+        });
+        console.log(`CQT Result: ${cqtResult.numBins} bins × ${cqtResult.numFrames} frames`);
+        console.log(`CQT data range: ${Math.min(...cqtResult.magnitudes)} to ${Math.max(...cqtResult.magnitudes)}`);
+        console.log(`Non-zero values: ${Array.from(cqtResult.magnitudes).filter(v => v > 0.001).length}`);
+
         // Convert to Float32Array and send to analyzer
         const samplesFloat32 = new Float32Array(extractedSamples);
         analyzer.processSamples(samplesFloat32);
@@ -100,7 +114,37 @@ export function Sampler({ }: SamplerProps) {
         const transformer = analyzer.getTransformer();
         const outputRing = transformer.getOutputBufferRing();
         const textureRing = transformer.getTextureBufferRing();
+        const config = transformer.getConfig();
+        console.log(`Transformer config: ${config.frequencyBinCount} bins × ${config.timeSliceCount} slices`);
         console.log(`Output ring count: ${outputRing.getCount()}, Texture ring count: ${textureRing.getCount()}`);
+
+        // Read back one output buffer to check the data
+        if (outputRing.getCount() > 0) {
+          const device = analyzer.getDevice();
+          const testOutputBuffer = outputRing.getBuffer(0);
+
+          // Create staging buffer for readback
+          const stagingBuffer = device.createBuffer({
+            size: testOutputBuffer.size,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+          });
+
+          const commandEncoder = device.createCommandEncoder();
+          commandEncoder.copyBufferToBuffer(testOutputBuffer, 0, stagingBuffer, 0, testOutputBuffer.size);
+          device.queue.submit([commandEncoder.finish()]);
+
+          await stagingBuffer.mapAsync(GPUMapMode.READ);
+          const outputData = new Float32Array(stagingBuffer.getMappedRange());
+          const outputCopy = new Float32Array(outputData); // Copy before unmapping
+          stagingBuffer.unmap();
+          stagingBuffer.destroy();
+
+          console.log(`=== WAVELET TRANSFORM OUTPUT BUFFER 0 ===`);
+          console.log(`Buffer size: ${outputCopy.length} floats`);
+          console.log(`Data range: ${Math.min(...outputCopy)} to ${Math.max(...outputCopy)}`);
+          console.log(`Non-zero values: ${Array.from(outputCopy).filter(v => Math.abs(v) > 0.001).length}`);
+          console.log(`First 20 values:`, Array.from(outputCopy.slice(0, 20)));
+        }
 
         // Trigger a manual render to update the view
         const renderer = analyzer.getScopeRenderer();

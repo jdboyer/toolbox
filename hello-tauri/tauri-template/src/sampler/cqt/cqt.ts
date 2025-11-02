@@ -230,11 +230,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
  *
  * @param audioData - Mono audio samples (Float32Array)
  * @param config - CQT configuration parameters
+ * @param device - Optional WebGPU device (if not provided, will get from AnalyzerService)
  * @returns CQT result with magnitude matrix and metadata
  */
 export async function computeCQT(
   audioData: Float32Array,
   config: CQTConfig,
+  device?: GPUDevice,
 ): Promise<CQTResult> {
   // Generate kernels
   const kernel = generateCQTKernels(config);
@@ -244,16 +246,22 @@ export async function computeCQT(
     (audioData.length - kernel.maxKernelLength) / config.hopLength
   ) + 1;
 
-  // Get shared WebGPU device from AnalyzerService
-  const AnalyzerService = (await import("../scope/analyzer-service")).default;
-  const analyzer = await AnalyzerService.getAnalyzer();
-  if (!analyzer) {
-    throw new Error("WebGPU is not supported on this system");
+  // Get WebGPU device
+  let gpuDevice: GPUDevice;
+  if (device) {
+    gpuDevice = device;
+  } else {
+    // Get shared WebGPU device from AnalyzerService
+    const AnalyzerService = (await import("../scope/analyzer-service.ts")).default;
+    const analyzer = await AnalyzerService.getAnalyzer();
+    if (!analyzer) {
+      throw new Error("WebGPU is not supported on this system");
+    }
+    gpuDevice = analyzer.getDevice();
   }
-  const device = analyzer.getDevice();
 
   // Create buffers
-  const audioBuffer = device.createBuffer({
+  const audioBuffer = gpuDevice.createBuffer({
     size: audioData.byteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     mappedAtCreation: true,
@@ -261,7 +269,7 @@ export async function computeCQT(
   new Float32Array(audioBuffer.getMappedRange()).set(audioData);
   audioBuffer.unmap();
 
-  const kernelBuffer = device.createBuffer({
+  const kernelBuffer = gpuDevice.createBuffer({
     size: kernel.kernelData.byteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     mappedAtCreation: true,
@@ -269,7 +277,7 @@ export async function computeCQT(
   new Float32Array(kernelBuffer.getMappedRange()).set(kernel.kernelData);
   kernelBuffer.unmap();
 
-  const kernelLengthsBuffer = device.createBuffer({
+  const kernelLengthsBuffer = gpuDevice.createBuffer({
     size: kernel.kernelLengths.byteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     mappedAtCreation: true,
@@ -278,12 +286,12 @@ export async function computeCQT(
   kernelLengthsBuffer.unmap();
 
   const outputSize = kernel.numBins * numFrames * 4; // Float32
-  const outputBuffer = device.createBuffer({
+  const outputBuffer = gpuDevice.createBuffer({
     size: outputSize,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
   });
 
-  const readbackBuffer = device.createBuffer({
+  const readbackBuffer = gpuDevice.createBuffer({
     size: outputSize,
     usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
   });
@@ -296,7 +304,7 @@ export async function computeCQT(
     kernel.maxKernelLength,
     audioData.length,
   ]);
-  const paramsBuffer = device.createBuffer({
+  const paramsBuffer = gpuDevice.createBuffer({
     size: paramsData.byteLength,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     mappedAtCreation: true,
@@ -305,9 +313,9 @@ export async function computeCQT(
   paramsBuffer.unmap();
 
   // Create shader module and pipeline
-  const shaderModule = device.createShaderModule({ code: CQT_SHADER });
+  const shaderModule = gpuDevice.createShaderModule({ code: CQT_SHADER });
 
-  const pipeline = device.createComputePipeline({
+  const pipeline = gpuDevice.createComputePipeline({
     layout: "auto",
     compute: {
       module: shaderModule,
@@ -316,7 +324,7 @@ export async function computeCQT(
   });
 
   // Create bind group
-  const bindGroup = device.createBindGroup({
+  const bindGroup = gpuDevice.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: audioBuffer } },
@@ -328,7 +336,7 @@ export async function computeCQT(
   });
 
   // Execute compute shader
-  const commandEncoder = device.createCommandEncoder();
+  const commandEncoder = gpuDevice.createCommandEncoder();
   const passEncoder = commandEncoder.beginComputePass();
   passEncoder.setPipeline(pipeline);
   passEncoder.setBindGroup(0, bindGroup);
@@ -342,7 +350,7 @@ export async function computeCQT(
   // Copy output to readback buffer
   commandEncoder.copyBufferToBuffer(outputBuffer, 0, readbackBuffer, 0, outputSize);
 
-  device.queue.submit([commandEncoder.finish()]);
+  gpuDevice.queue.submit([commandEncoder.finish()]);
 
   // Read results
   await readbackBuffer.mapAsync(GPUMapMode.READ);

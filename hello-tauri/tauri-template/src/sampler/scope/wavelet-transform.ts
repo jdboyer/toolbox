@@ -133,6 +133,7 @@ struct Params {
   hopLength: u32,
   maxKernelLength: u32,
   audioLength: u32,
+  floatsPerRow: u32,  // Number of floats per row (including padding)
 }
 
 @group(0) @binding(0) var<storage, read> audioData: array<f32>;
@@ -175,8 +176,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   // Compute magnitude
   let magnitude = sqrt(sumReal * sumReal + sumImag * sumImag);
 
-  // Store in column-major order: output[frame * numBins + bin]
-  output[frame * params.numBins + bin] = magnitude;
+  // Store with row padding: output[frame * floatsPerRow + bin]
+  // floatsPerRow includes padding to meet 256-byte alignment
+  output[frame * params.floatsPerRow + bin] = magnitude;
 }
 `;
 
@@ -250,7 +252,7 @@ export class WaveletTransform {
   private createParamsBuffer(): GPUBuffer {
     return this.device.createBuffer({
       label: "wavelet-params",
-      size: 5 * 4, // 5 u32 values
+      size: 6 * 4, // 6 u32 values (numBins, numFrames, hopLength, maxKernelLength, audioLength, floatsPerRow)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
@@ -296,6 +298,10 @@ export class WaveletTransform {
     numFrames: number,
     commandEncoder: GPUCommandEncoder,
   ): void {
+    // Calculate floatsPerRow (256-byte aligned rows)
+    const bytesPerRow = Math.ceil((this.kernel.numBins * 4) / 256) * 256;
+    const floatsPerRow = bytesPerRow / 4;
+
     // Update parameters
     const paramsData = new Uint32Array([
       this.kernel.numBins,
@@ -303,6 +309,7 @@ export class WaveletTransform {
       this.config.hopLength,
       this.kernel.maxKernelLength,
       audioLength,
+      floatsPerRow,
     ]);
     this.device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
 
