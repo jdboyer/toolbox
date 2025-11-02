@@ -44,9 +44,7 @@ export function Sampler({ }: SamplerProps) {
 
     const loadWavFile = async () => {
       try {
-        console.log("Loading WAV file:", selectedFile);
         const data = await invoke<WavData>("read_wav_file", { filePath: selectedFile });
-        console.log("WAV data loaded:", data);
         setWavData(data);
       } catch (error) {
         console.error("Failed to load WAV file:", error);
@@ -71,7 +69,6 @@ export function Sampler({ }: SamplerProps) {
         }
 
         // Reset the analyzer to clear previous data
-        console.log("Resetting analyzer for new WAV file");
         analyzer.reset();
 
         // Convert to Float32Array and send to analyzer
@@ -82,10 +79,7 @@ export function Sampler({ }: SamplerProps) {
         paddedSamples.set(wavData.samples);
         // Rest is already zeros
 
-        console.log(`Processing ${wavData.samples.length} samples (+ ${paddingLength} zero padding) at ${wavData.sample_rate} Hz`);
-        analyzer.processSamples(paddedSamples, wavData.samples.length);
-        console.log("Samples sent to analyzer - spectrogram should be rendering!");
-        console.log("Current column after processing:", analyzer.getCurrentColumn());
+        analyzer.processSamples(paddedSamples);
       } catch (error) {
         console.error("Failed to process WAV data:", error);
       }
@@ -95,9 +89,7 @@ export function Sampler({ }: SamplerProps) {
   }, [wavData]);
 
   const handleSelectFile = async () => {
-    console.log("handleSelectFile called");
     try {
-      console.log("About to open dialog...");
       const selected = await open({
         multiple: false,
         filters: [{
@@ -106,10 +98,8 @@ export function Sampler({ }: SamplerProps) {
         }]
       });
 
-      console.log("Dialog result:", selected);
       if (selected && typeof selected === 'string') {
         setSelectedFile(selected);
-        console.log("File selected:", selected);
       }
     } catch (error) {
       console.error("Failed to open file dialog:", error);

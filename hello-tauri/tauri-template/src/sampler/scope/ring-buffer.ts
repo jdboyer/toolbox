@@ -1,163 +1,213 @@
 /**
- * RingBuffer - Generic ring buffer index management
+ * RingBuffer - Generic ring buffer abstraction for managing circular buffers
  *
- * This class provides index management for circular buffers.
- * It tracks read/write positions and handles wrapping automatically.
- *
- * @template T The type of items stored in the ring buffer
+ * This class provides:
+ * 1. Automatic wrapping of indices in a circular buffer
+ * 2. Tracking of current write position within a buffer
+ * 3. Querying buffer ranges and status
+ * 4. Lazy initialization of buffers using a factory function
  */
 export class RingBuffer<T> {
   private buffers: T[];
-  private capacity: number;
-  private writeIndex: number;
-  private readIndex: number;
-  private count: number; // Number of items currently in buffer
+  private bufferCount: number;
+  private currentBufferIndex: number;
+  private writeOffset: number;
+  private bufferSize: number;
+  private totalBuffersWritten: number;
+  private bufferFactory: () => T;
 
   /**
    * Create a RingBuffer instance
-   * @param capacity Maximum number of items in the ring buffer
-   * @param initializer Function to create initial buffer items
+   * @param bufferCount Number of buffers in the ring
+   * @param bufferSize Size of each buffer (number of elements)
+   * @param bufferFactory Callback function for creating new buffers
    */
-  constructor(capacity: number, initializer: (index: number) => T) {
-    this.capacity = capacity;
-    this.writeIndex = 0;
-    this.readIndex = 0;
-    this.count = 0;
+  constructor(bufferCount: number, bufferSize: number, bufferFactory: () => T) {
+    this.bufferCount = bufferCount;
+    this.bufferSize = bufferSize;
+    this.bufferFactory = bufferFactory;
+    this.buffers = new Array(bufferCount);
+    this.currentBufferIndex = 0;
+    this.writeOffset = 0;
+    this.totalBuffersWritten = 0;
 
-    // Initialize buffers using the provided initializer function
-    this.buffers = new Array(capacity);
-    for (let i = 0; i < capacity; i++) {
-      this.buffers[i] = initializer(i);
+    // Initialize all buffers using the factory
+    for (let i = 0; i < bufferCount; i++) {
+      this.buffers[i] = bufferFactory();
     }
   }
 
   /**
-   * Get the capacity of the ring buffer
+   * Get the current buffer being written to
    */
-  getCapacity(): number {
-    return this.capacity;
+  getCurrentBuffer(): T {
+    return this.buffers[this.currentBufferIndex];
   }
 
   /**
-   * Get the current number of items in the buffer
-   */
-  getCount(): number {
-    return this.count;
-  }
-
-  /**
-   * Check if the buffer is empty
-   */
-  isEmpty(): boolean {
-    return this.count === 0;
-  }
-
-  /**
-   * Check if the buffer is full
-   */
-  isFull(): boolean {
-    return this.count === this.capacity;
-  }
-
-  /**
-   * Get the current write index
-   */
-  getWriteIndex(): number {
-    return this.writeIndex;
-  }
-
-  /**
-   * Get the current read index
-   */
-  getReadIndex(): number {
-    return this.readIndex;
-  }
-
-  /**
-   * Get the buffer at a specific index
-   * @param index Index into the ring buffer (0 to capacity-1)
+   * Get a buffer at a specific index (wraps around)
+   * @param index Buffer index (will be wrapped to valid range)
    */
   getBuffer(index: number): T {
-    if (index < 0 || index >= this.capacity) {
-      throw new Error(`Index ${index} out of range [0, ${this.capacity})`);
+    const wrappedIndex = ((index % this.bufferCount) + this.bufferCount) % this.bufferCount;
+    return this.buffers[wrappedIndex];
+  }
+
+  /**
+   * Get the current buffer index
+   */
+  getCurrentBufferIndex(): number {
+    return this.currentBufferIndex;
+  }
+
+  /**
+   * Get the current write offset within the current buffer
+   */
+  getWriteOffset(): number {
+    return this.writeOffset;
+  }
+
+  /**
+   * Get the size of each buffer
+   */
+  getBufferSize(): number {
+    return this.bufferSize;
+  }
+
+  /**
+   * Get the number of buffers in the ring
+   */
+  getBufferCount(): number {
+    return this.bufferCount;
+  }
+
+  /**
+   * Get the total number of buffers written (not wrapped)
+   */
+  getTotalBuffersWritten(): number {
+    return this.totalBuffersWritten;
+  }
+
+  /**
+   * Advance the write offset by a given amount
+   * If the offset exceeds the buffer size, advance to the next buffer
+   * @param amount Number of elements to advance
+   * @returns Number of complete buffers that were filled
+   */
+  advanceWriteOffset(amount: number): number {
+    this.writeOffset += amount;
+    let buffersCompleted = 0;
+
+    while (this.writeOffset >= this.bufferSize) {
+      this.writeOffset -= this.bufferSize;
+      this.advanceBuffer();
+      buffersCompleted++;
     }
-    return this.buffers[index];
+
+    return buffersCompleted;
   }
 
   /**
-   * Get the buffer at the current write position
+   * Advance to the next buffer in the ring
+   * Resets the write offset to 0
    */
-  getWriteBuffer(): T {
-    return this.buffers[this.writeIndex];
+  advanceBuffer(): void {
+    this.currentBufferIndex = (this.currentBufferIndex + 1) % this.bufferCount;
+    this.writeOffset = 0;
+    this.totalBuffersWritten++;
   }
 
   /**
-   * Get the buffer at the current read position
-   * @returns The buffer at read position, or null if buffer is empty
+   * Get the remaining space in the current buffer
    */
-  getReadBuffer(): T | null {
-    if (this.isEmpty()) {
-      return null;
-    }
-    return this.buffers[this.readIndex];
+  getRemainingSpace(): number {
+    return this.bufferSize - this.writeOffset;
   }
 
   /**
-   * Advance the write index
-   * Increments the write position and wraps around if necessary
-   * @returns The new write index
+   * Check if the current buffer is full
    */
-  advanceWrite(): number {
-    if (this.isFull()) {
-      // If buffer is full, also advance read index (overwrite oldest)
-      this.readIndex = (this.readIndex + 1) % this.capacity;
+  isCurrentBufferFull(): boolean {
+    return this.writeOffset >= this.bufferSize;
+  }
+
+  /**
+   * Check if the current buffer is empty
+   */
+  isCurrentBufferEmpty(): boolean {
+    return this.writeOffset === 0;
+  }
+
+  /**
+   * Get the range of valid buffer indices
+   * If fewer than bufferCount buffers have been written, only returns written range
+   * @returns { start: number, count: number } - start index and count of valid buffers
+   */
+  getValidBufferRange(): { start: number; count: number } {
+    if (this.totalBuffersWritten < this.bufferCount) {
+      // Not all buffers have been written yet
+      return {
+        start: 0,
+        count: this.totalBuffersWritten,
+      };
     } else {
-      this.count++;
+      // Ring buffer is full, all buffers are valid
+      // The oldest buffer is right after the current one
+      const oldestIndex = (this.currentBufferIndex + 1) % this.bufferCount;
+      return {
+        start: oldestIndex,
+        count: this.bufferCount,
+      };
     }
-
-    this.writeIndex = (this.writeIndex + 1) % this.capacity;
-    return this.writeIndex;
   }
 
   /**
-   * Advance the read index
-   * Increments the read position and wraps around if necessary
-   * @returns The new read index, or -1 if buffer is empty
+   * Get a range of buffers
+   * @param startIndex Starting buffer index (will be wrapped)
+   * @param count Number of buffers to retrieve
+   * @returns Array of buffers
    */
-  advanceRead(): number {
-    if (this.isEmpty()) {
-      return -1;
+  getBufferRange(startIndex: number, count: number): T[] {
+    const result: T[] = [];
+    for (let i = 0; i < count; i++) {
+      result.push(this.getBuffer(startIndex + i));
     }
-
-    this.readIndex = (this.readIndex + 1) % this.capacity;
-    this.count--;
-    return this.readIndex;
+    return result;
   }
 
   /**
    * Reset the ring buffer to initial state
-   * Clears all indices but does not destroy the buffer items
+   * Optionally reinitialize all buffers using the factory
+   * @param reinitializeBuffers If true, create new buffers using the factory
    */
-  reset(): void {
-    this.writeIndex = 0;
-    this.readIndex = 0;
-    this.count = 0;
-  }
+  reset(reinitializeBuffers = false): void {
+    this.currentBufferIndex = 0;
+    this.writeOffset = 0;
+    this.totalBuffersWritten = 0;
 
-  /**
-   * Get all buffers (mainly for cleanup/destruction)
-   */
-  getAllBuffers(): T[] {
-    return this.buffers;
-  }
-
-  /**
-   * Execute a callback for each buffer in the ring
-   * @param callback Function to execute for each buffer
-   */
-  forEach(callback: (buffer: T, index: number) => void): void {
-    for (let i = 0; i < this.capacity; i++) {
-      callback(this.buffers[i], i);
+    if (reinitializeBuffers) {
+      for (let i = 0; i < this.bufferCount; i++) {
+        this.buffers[i] = this.bufferFactory();
+      }
     }
+  }
+
+  /**
+   * Get the absolute position across all buffers (buffer index + offset)
+   * @returns Total number of elements written
+   */
+  getAbsolutePosition(): number {
+    return this.totalBuffersWritten * this.bufferSize + this.writeOffset;
+  }
+
+  /**
+   * Convert an absolute position to buffer index and offset
+   * @param position Absolute position
+   * @returns { bufferIndex: number, offset: number }
+   */
+  absoluteToBufferPosition(position: number): { bufferIndex: number; offset: number } {
+    const bufferIndex = Math.floor(position / this.bufferSize);
+    const offset = position % this.bufferSize;
+    return { bufferIndex, offset };
   }
 }

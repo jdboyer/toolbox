@@ -41,9 +41,7 @@ export function TimeDomainView({
 
     const loadWavFile = async () => {
       try {
-        console.log("Loading WAV file:", wavFilePath);
         const data = await invoke<WavData>("read_wav_file", { filePath: wavFilePath });
-        console.log("WAV data loaded:", data);
         setWavData(data);
       } catch (error) {
         console.error("Failed to load WAV file:", error);

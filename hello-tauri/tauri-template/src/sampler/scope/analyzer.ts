@@ -1,6 +1,5 @@
-import { Accumulator } from "./accumulator.ts";
-import { Transformer } from "./transformer.ts";
 import { ScopeRenderer } from "./scope-renderer.ts";
+import { Transformer } from "./transformer.ts";
 
 /**
  * Configuration options for the Analyzer
@@ -35,7 +34,7 @@ const DEFAULT_CONFIG: AnalyzerConfig = {
 export class Analyzer {
   private device: GPUDevice;
   private adapter: GPUAdapter;
-  private accumulator: Accumulator;
+  //private accumulator: Accumulator;
   private transformer: Transformer;
   private config: AnalyzerConfig;
   private scopeRenderer: ScopeRenderer | null = null;
@@ -49,8 +48,8 @@ export class Analyzer {
     this.device = device;
     this.adapter = adapter;
     this.config = { ...DEFAULT_CONFIG };
-    this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
-    this.transformer = new Transformer(this.device, this.accumulator);
+    //this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
+    this.transformer = new Transformer(this.device);
   }
 
   /**
@@ -96,10 +95,10 @@ export class Analyzer {
     // If block size or max blocks changed, recreate the accumulator and transformer
     if (configChanged) {
       // Destroy old transformer's WebGPU resources
-      this.transformer.destroy();
+      //this.transformer.destroy();
 
-      this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
-      this.transformer = new Transformer(this.device, this.accumulator);
+      //this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
+      //this.transformer = new Transformer(this.device, this.accumulator);
     }
   }
 
@@ -108,8 +107,9 @@ export class Analyzer {
    * @param samples Float32Array containing audio samples
    */
   processSamples(samples: Float32Array): void {
-    this.accumulator.addSamples(samples);
-    this.transformer.processBlocks();
+    this.transformer.addSamples(samples);
+    //this.accumulator.addSamples(samples);
+    //this.transformer.processBlocks();
   }
 
   /**
@@ -122,16 +122,16 @@ export class Analyzer {
   /**
    * Get the accumulator instance
    */
-  getAccumulator(): Accumulator {
-    return this.accumulator;
-  }
+  //getAccumulator(): Accumulator {
+    //return this.accumulator;
+  //}
 
   /**
    * Get the transformer instance
    */
-  getTransformer(): Transformer {
-    return this.transformer;
-  }
+  //getTransformer(): Transformer {
+    //return this.transformer;
+  //}
 
   /**
    * Initialize the scope renderer with a canvas
@@ -156,8 +156,8 @@ export class Analyzer {
    * Clears accumulator and transformer buffers/indices
    */
   reset(): void {
-    this.accumulator.reset();
-    this.transformer.reset();
+    //this.accumulator.reset();
+    //this.transformer.reset();
   }
 
   /**
@@ -169,6 +169,6 @@ export class Analyzer {
       this.scopeRenderer.destroy();
       this.scopeRenderer = null;
     }
-    this.transformer.destroy();
+    //this.transformer.destroy();
   }
 }
