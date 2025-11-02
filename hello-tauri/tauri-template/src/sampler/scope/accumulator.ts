@@ -1,4 +1,4 @@
-import { RingBuffer } from "./ring-buffer";
+import { RingBuffer } from "./ring-buffer.ts";
 
 /**
  * Accumulator - Manages a ring buffer for accumulating audio samples
@@ -45,7 +45,7 @@ export class Accumulator {
     // Create output buffer (4096 * 16 samples = 65536 * 4 bytes)
     this.outputBuffer = this.device.createBuffer({
       size: this.OUTPUT_BUFFER_SIZE * 4, // Float32 = 4 bytes
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
   }
 
@@ -119,9 +119,7 @@ export class Accumulator {
         this.device.queue.writeBuffer(
           this.outputBuffer,
           this.outputBufferWriteOffset * 4, // byte offset
-          buffer.buffer,
-          buffer.byteOffset,
-          buffer.byteLength
+          buffer
         );
         this.outputBufferWriteOffset += this.blockSize;
       }
@@ -132,9 +130,7 @@ export class Accumulator {
     this.device.queue.writeBuffer(
       this.outputBuffer,
       this.outputBufferWriteOffset * 4, // byte offset
-      buffer.buffer,
-      buffer.byteOffset,
-      buffer.byteLength
+      buffer
     );
     this.outputBufferWriteOffset += samplesNeeded;
   }
@@ -147,6 +143,10 @@ export class Accumulator {
     this.inputRingBuffer.reset(true); // Reinitialize buffers with zeros
     this.outputBufferWriteOffset = 0;
     this.lastPreparedBlockIndex = -1;
+
+    // Clear the GPU output buffer by writing zeros
+    const zeros = new Float32Array(this.OUTPUT_BUFFER_SIZE);
+    this.device.queue.writeBuffer(this.outputBuffer, 0, zeros);
   }
 
   /**

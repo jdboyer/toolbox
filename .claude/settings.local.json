@@ -13,7 +13,9 @@
       "Bash(deno test src/sampler/scope/spectrogram-comparison.test.ts --allow-read --no-check)",
       "Bash(deno test src/sampler/scope/ --allow-read --no-check)",
       "Bash(deno cache --check src/sampler/scope/transformer.ts)",
-      "Bash(deno test src/sampler/scope/pipeline-stages.test.ts --allow-read --no-check)"
+      "Bash(deno test src/sampler/scope/pipeline-stages.test.ts --allow-read --no-check)",
+      "Bash(deno test src/sampler/scope/tests/ --allow-read)",
+      "Bash(deno lint src/sampler/scope/tests/accumulator.test.ts)"
     ],
     "deny": [],
     "ask": []

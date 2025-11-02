@@ -1,4 +1,5 @@
-import { Accumulator } from "./accumulator";
+import { Accumulator } from "./accumulator.ts";
+import { WaveletTransform, type CQTConfig } from "./wavelet-transform.ts";
 
 export interface TransformerConfig {
   /** Sample rate in Hz (e.g., 44100, 48000) */
@@ -51,9 +52,15 @@ export class Transformer {
   private device: GPUDevice;
   private accumulator: Accumulator;
   private config: TransformerConfig;
+  private waveletTransform: WaveletTransform;
 
   // CQT parameters
   private minWindowSize: number; // Minimum samples needed for CQT
+
+  // Output buffer for CQT results (2D array: [time][frequency])
+  private cqtOutputBuffer: GPUBuffer;
+  private cqtOutputOffset: number = 0; // Current write position in time frames
+  private readonly MAX_TIME_FRAMES = 1024; // Maximum number of time frames to store
 
   /**
    * Create a Transformer instance
@@ -84,6 +91,32 @@ export class Transformer {
       this.config.blockSize,
       this.config.maxBlocks,
       this.minWindowSize
+    );
+
+    // Create wavelet transform (CQT)
+    const cqtConfig: CQTConfig = {
+      sampleRate: this.config.sampleRate,
+      fMin: this.config.fMin,
+      fMax: this.config.fMax,
+      binsPerOctave: this.config.binsPerOctave,
+      blockSize: this.config.blockSize,
+      batchFactor: this.config.blockSize / this.config.hopLength, // Calculate batchFactor from hopLength
+    };
+    this.waveletTransform = new WaveletTransform(this.device, cqtConfig);
+
+    // Create output buffer for CQT results
+    // Size: MAX_TIME_FRAMES * numBins * 4 bytes per float
+    const numBins = this.waveletTransform.getNumBins();
+    this.cqtOutputBuffer = this.device.createBuffer({
+      size: this.MAX_TIME_FRAMES * numBins * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
+    // Configure the wavelet transform with the buffers
+    this.waveletTransform.configure(
+      this.accumulator.getOutputBuffer(),
+      this.cqtOutputBuffer,
+      this.accumulator.getOutputBufferSize()
     );
   }
 
@@ -118,9 +151,46 @@ export class Transformer {
       const chunk = samples.subarray(offset, offset + chunkSize);
 
       // Accumulator handles block completion and output buffer preparation
-      this.accumulator.addSamples(chunk);
+      const blocksCompleted = this.accumulator.addSamples(chunk);
+
+      // Process transform for each newly completed block
+      for (let i = 0; i < blocksCompleted; i++) {
+        this.processTransform();
+      }
 
       offset += chunkSize;
+    }
+  }
+
+  /**
+   * Process a transform for a newly completed block
+   * This method is called once for each block that has been added to the accumulator
+   * and is ready for processing
+   */
+  processTransform(): void {
+    // Calculate the input offset (use the most recent data)
+    const inputOffset = Math.max(0, this.accumulator.getOutputBufferWriteOffset() - this.minWindowSize);
+
+    // Calculate how many time frames we can compute from one block
+    // This equals batchFactor (blockSize / hopLength)
+    const numFrames = this.waveletTransform.getBatchFactor();
+
+    // Check if we need to wrap the output buffer
+    if (this.cqtOutputOffset + numFrames > this.MAX_TIME_FRAMES) {
+      this.cqtOutputOffset = 0; // Wrap around (ring buffer behavior)
+    }
+
+    // Only process if we have enough samples
+    if (this.accumulator.getOutputBufferWriteOffset() >= this.minWindowSize) {
+      // Perform CQT transform (buffers already configured in constructor)
+      this.waveletTransform.transform(
+        inputOffset,
+        this.cqtOutputOffset,
+        numFrames
+      );
+
+      // Advance output offset
+      this.cqtOutputOffset += numFrames;
     }
   }
 
@@ -129,6 +199,8 @@ export class Transformer {
    */
   reset(): void {
     this.accumulator.reset();
+    this.waveletTransform.reset();
+    this.cqtOutputOffset = 0;
   }
 
   /**
@@ -136,6 +208,8 @@ export class Transformer {
    */
   destroy(): void {
     this.accumulator.destroy();
+    this.waveletTransform.destroy();
+    this.cqtOutputBuffer.destroy();
   }
 
   /**
@@ -150,5 +224,40 @@ export class Transformer {
    */
   getAccumulator(): Accumulator {
     return this.accumulator;
+  }
+
+  /**
+   * Get the wavelet transform instance
+   */
+  getWaveletTransform(): WaveletTransform {
+    return this.waveletTransform;
+  }
+
+  /**
+   * Get the CQT output buffer (2D array: [time][frequency])
+   */
+  getCQTOutputBuffer(): GPUBuffer {
+    return this.cqtOutputBuffer;
+  }
+
+  /**
+   * Get the current write offset in the CQT output buffer (in time frames)
+   */
+  getCQTOutputOffset(): number {
+    return this.cqtOutputOffset;
+  }
+
+  /**
+   * Get the maximum number of time frames that can be stored
+   */
+  getMaxTimeFrames(): number {
+    return this.MAX_TIME_FRAMES;
+  }
+
+  /**
+   * Get the transformer configuration
+   */
+  getConfig(): TransformerConfig {
+    return this.config;
   }
 }

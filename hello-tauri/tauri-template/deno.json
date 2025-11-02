@@ -1,0 +1,21 @@
+{
+  "imports": {
+    "@std/assert": "https://deno.land/std@0.208.0/assert/mod.ts"
+  },
+  "tasks": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test": "deno test src/sampler/scope/tests/ --allow-read"
+  },
+  "compilerOptions": {
+    "types": ["@webgpu/types"],
+    "lib": ["deno.window", "dom", "dom.iterable"]
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src-tauri/target"
+  ]
+}
