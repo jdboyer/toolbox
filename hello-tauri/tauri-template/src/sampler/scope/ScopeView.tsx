@@ -51,7 +51,8 @@ export function ScopeView({ canvasWidth, canvasHeight = 400, timeRange, timeOffs
 
       const renderer = analyzer.getScopeRenderer();
       if (renderer) {
-        renderer.setTimeAxis(timeRange, timeOffset, sampleRate);
+        const actualSampleCount = analyzer.getActualSampleCount();
+        renderer.setTimeAxis(timeRange, timeOffset, sampleRate, actualSampleCount);
       }
     };
 

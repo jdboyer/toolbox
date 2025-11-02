@@ -31,6 +31,9 @@ export class SimpleAnalyzer {
   // Audio buffer for sliding window
   private audioBuffer: Float32Array = new Float32Array(0);
 
+  // Track actual audio duration (excluding zero padding)
+  private actualSampleCount = 0;
+
   // CQT kernels
   private kernels: Float32Array | null = null;
   private kernelLengths: Uint32Array | null = null;
@@ -192,8 +195,15 @@ export class SimpleAnalyzer {
   /**
    * Process incoming audio samples
    */
-  processSamples(samples: Float32Array) {
+  processSamples(samples: Float32Array, actualSampleCount?: number) {
     if (!this.renderer) return;
+
+    // Track actual sample count (excluding zero padding)
+    if (actualSampleCount !== undefined) {
+      this.actualSampleCount = actualSampleCount;
+    } else {
+      this.actualSampleCount = samples.length;
+    }
 
     // Append to buffer
     const newBuffer = new Float32Array(this.audioBuffer.length + samples.length);
@@ -286,5 +296,12 @@ export class SimpleAnalyzer {
 
   getScopeRenderer(): ScopeRenderer | null {
     return this.renderer;
+  }
+
+  /**
+   * Get actual sample count (excluding padding)
+   */
+  getActualSampleCount(): number {
+    return this.actualSampleCount;
   }
 }

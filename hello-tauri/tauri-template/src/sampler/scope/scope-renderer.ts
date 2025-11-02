@@ -30,6 +30,7 @@ export class ScopeRenderer {
   private timeOffset = 0; // ms
   private sampleRate = 48000; // Hz
   private hopLength = 512; // samples per frame
+  private actualSampleCount = 0; // Actual audio samples (excluding padding)
 
   constructor(device: GPUDevice, _analyzer: Analyzer) {
     this.device = device;
@@ -136,17 +137,24 @@ export class ScopeRenderer {
       @group(0) @binding(1) var spectrogramSampler: sampler;
 
       fn valueToColor(value: f32) -> vec3<f32> {
-        let v = clamp(value * 10.0, 0.0, 1.0);
+        // Apply power scaling to compress dynamic range
+        // Power of 0.6 gives more detail in lower values
+        let logValue = pow(value, 0.5);
+        let v = clamp(logValue, 0.0, 1.0);
 
         // Hot colormap: black -> red -> yellow -> white
-        if (v < 0.33) {
-          let t = v / 0.33;
+        // Only the very brightest values reach white
+        if (v < 0.4) {
+          // Black to red
+          let t = v / 0.4;
           return vec3<f32>(t, 0.0, 0.0);
-        } else if (v < 0.67) {
-          let t = (v - 0.33) / 0.34;
+        } else if (v < 0.8) {
+          // Red to yellow
+          let t = (v - 0.4) / 0.4;
           return vec3<f32>(1.0, t, 0.0);
         } else {
-          let t = (v - 0.67) / 0.33;
+          // Yellow to white (only top 20%)
+          let t = (v - 0.8) / 0.2;
           return vec3<f32>(1.0, 1.0, t);
         }
       }
@@ -157,8 +165,17 @@ export class ScopeRenderer {
         let sample = textureSample(spectrogramTexture, spectrogramSampler, uv);
         let magnitude = sample.r;
 
+        // Apply frequency-dependent scaling
+        // Low frequencies (v near 0) have more energy, so scale them down more aggressively
+        // High frequencies (v near 1) scale them up to be more visible
+        // Using a power curve: higher frequencies get boosted
+        let freqWeight = pow(uv.y, 0.3) * 5.0 + 0.1; // Range from ~0.1 (low freq) to ~5.1 (high freq)
+
+        // Scale down overall to reduce brightness
+        let scaledMagnitude = magnitude * freqWeight * 0.5;
+
         // Convert to color
-        let color = valueToColor(magnitude);
+        let color = valueToColor(scaledMagnitude);
         return vec4<f32>(color, 1.0);
       }
     `;
@@ -175,12 +192,14 @@ export class ScopeRenderer {
     // Check for shader compilation errors
     const vertexInfo = await vertexModule.getCompilationInfo();
     if (vertexInfo.messages.length > 0) {
-      console.error("Vertex shader compilation messages:", vertexInfo.messages);
+      console.error("Vertex shader compilation messages:");
+      vertexInfo.messages.forEach(msg => console.error(msg));
     }
 
     const fragmentInfo = await fragmentModule.getCompilationInfo();
     if (fragmentInfo.messages.length > 0) {
-      console.error("Fragment shader compilation messages:", fragmentInfo.messages);
+      console.error("Fragment shader compilation messages:");
+      fragmentInfo.messages.forEach(msg => console.error(msg));
     }
 
     this.pipeline = this.device.createRenderPipeline({
@@ -393,8 +412,10 @@ export class ScopeRenderer {
 
     try {
       // Calculate time axis mapping
-      // Total duration of spectrogram in seconds
-      const totalDurationSeconds = (this.filledColumns * this.hopLength) / this.sampleRate;
+      // Total duration of spectrogram in seconds (use actualSampleCount if available)
+      const totalDurationSeconds = this.actualSampleCount > 0
+        ? this.actualSampleCount / this.sampleRate
+        : (this.filledColumns * this.hopLength) / this.sampleRate;
 
       // Convert timeRange and timeOffset from ms to seconds
       const timeRangeSeconds = this.timeRange / 1000;
@@ -470,11 +491,15 @@ export class ScopeRenderer {
    * @param timeRange Total time range to display (ms)
    * @param timeOffset Time offset from start (ms)
    * @param sampleRate Sample rate (Hz)
+   * @param actualSampleCount Actual audio sample count (excluding padding)
    */
-  setTimeAxis(timeRange: number, timeOffset: number, sampleRate: number) {
+  setTimeAxis(timeRange: number, timeOffset: number, sampleRate: number, actualSampleCount?: number) {
     this.timeRange = timeRange;
     this.timeOffset = timeOffset;
     this.sampleRate = sampleRate;
+    if (actualSampleCount !== undefined) {
+      this.actualSampleCount = actualSampleCount;
+    }
 
     // Trigger re-render with new time axis
     this.render();

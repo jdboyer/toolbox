@@ -75,10 +75,15 @@ export function Sampler({ }: SamplerProps) {
         analyzer.reset();
 
         // Convert to Float32Array and send to analyzer
-        const samplesFloat32 = new Float32Array(wavData.samples);
+        // Add zero padding at the end so we can process the entire sample
+        // (CQT needs maxKernelLength samples in buffer to compute a frame)
+        const paddingLength = 50000; // Enough for 50Hz at 48kHz
+        const paddedSamples = new Float32Array(wavData.samples.length + paddingLength);
+        paddedSamples.set(wavData.samples);
+        // Rest is already zeros
 
-        console.log(`Processing ${samplesFloat32.length} samples at ${wavData.sample_rate} Hz`);
-        analyzer.processSamples(samplesFloat32);
+        console.log(`Processing ${wavData.samples.length} samples (+ ${paddingLength} zero padding) at ${wavData.sample_rate} Hz`);
+        analyzer.processSamples(paddedSamples, wavData.samples.length);
         console.log("Samples sent to analyzer - spectrogram should be rendering!");
         console.log("Current column after processing:", analyzer.getCurrentColumn());
       } catch (error) {
