@@ -10,6 +10,7 @@ export class ScopeRenderer {
   private context: GPUCanvasContext | null = null;
   private pipeline: GPURenderPipeline | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private uniformBuffer: GPUBuffer | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private animationFrameId: number | null = null;
   private isRendering = false;
@@ -41,6 +42,13 @@ export class ScopeRenderer {
       device: this.device,
       format: this.format,
       alphaMode: "opaque",
+    });
+
+    // Create uniform buffer for dynamic parameters
+    this.uniformBuffer = this.device.createBuffer({
+      label: "scope-renderer-uniforms",
+      size: 16, // 4 bytes for u32 (textureCount) + 12 bytes padding
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
     // Create the render pipeline and bind group
@@ -97,6 +105,11 @@ export class ScopeRenderer {
     const fragmentShaderCode = `
       @group(0) @binding(0) var textureArray: texture_2d_array<f32>;
 
+      struct Uniforms {
+        activeTextureCount: u32,
+      };
+      @group(0) @binding(1) var<uniform> uniforms: Uniforms;
+
       // Convert value to color using a spectrogram-like palette
       fn valueToColor(value: f32) -> vec3<f32> {
         // More aggressive scaling to see the data better
@@ -125,7 +138,7 @@ export class ScopeRenderer {
         // uv.y (0-1) = vertical position (same for all tiles)
 
         let totalCount = ${textureCount}u;
-        let displayCount = 84u;  // Only show the first 84 tiles (which have data)
+        let displayCount = max(1u, uniforms.activeTextureCount);  // Show only populated tiles
         let tileWidth = 1.0 / f32(displayCount);
 
         // Which tile are we in?
@@ -205,20 +218,26 @@ export class ScopeRenderer {
    * Create bind group with the texture array from the transformer
    */
   private createBindGroup() {
-    if (!this.pipeline) return;
+    if (!this.pipeline || !this.uniformBuffer) return;
 
     const transformer = this.analyzer.getTransformer();
     const textureArray = transformer.getTextureArray();
     const textureCount = transformer.getConfig().textureBufferCount;
     console.log(`Creating bind group with texture array (${textureCount} layers)`);
 
-    // Create the bind group with just the texture array (no sampler needed for textureLoad)
+    // Create the bind group with texture array and uniform buffer
     this.bindGroup = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries: [
         {
           binding: 0,
           resource: textureArray.createView(),
+        },
+        {
+          binding: 1,
+          resource: {
+            buffer: this.uniformBuffer,
+          },
         },
       ],
     });
@@ -248,11 +267,19 @@ export class ScopeRenderer {
    * Render a single frame
    */
   private renderFrame = () => {
-    if (!this.isRendering || !this.context || !this.pipeline || !this.bindGroup) {
+    if (!this.isRendering || !this.context || !this.pipeline || !this.bindGroup || !this.uniformBuffer) {
       return;
     }
 
     try {
+      // Update uniform buffer with current write index
+      const transformer = this.analyzer.getTransformer();
+      const writeIndex = transformer.getTextureBufferRing().getWriteIndex();
+      const activeCount = Math.max(1, writeIndex); // At least show 1 tile
+
+      const uniformData = new Uint32Array([activeCount]);
+      this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+
       const commandEncoder = this.device.createCommandEncoder();
       const currentTexture = this.context.getCurrentTexture();
       const textureView = currentTexture.createView();
@@ -291,11 +318,19 @@ export class ScopeRenderer {
    * Manually trigger a single render (useful for manual rendering mode)
    */
   render() {
-    if (!this.context || !this.pipeline || !this.bindGroup) {
+    if (!this.context || !this.pipeline || !this.bindGroup || !this.uniformBuffer) {
       return;
     }
 
     try {
+      // Update uniform buffer with current write index
+      const transformer = this.analyzer.getTransformer();
+      const writeIndex = transformer.getTextureBufferRing().getWriteIndex();
+      const activeCount = Math.max(1, writeIndex);
+
+      const uniformData = new Uint32Array([activeCount]);
+      this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+
       const commandEncoder = this.device.createCommandEncoder();
       const currentTexture = this.context.getCurrentTexture();
       const textureView = currentTexture.createView();
@@ -333,6 +368,12 @@ export class ScopeRenderer {
     if (this.context) {
       this.context.unconfigure();
       this.context = null;
+    }
+
+    // Destroy uniform buffer
+    if (this.uniformBuffer) {
+      this.uniformBuffer.destroy();
+      this.uniformBuffer = null;
     }
 
     // Clear references
