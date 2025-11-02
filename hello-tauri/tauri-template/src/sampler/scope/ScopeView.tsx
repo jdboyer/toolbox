@@ -21,16 +21,13 @@ export function ScopeView({ canvasWidth, canvasHeight = 400 }: ScopeViewProps) {
         return;
       }
 
-      // Initialize the scope renderer with the canvas
-      const initialized = await analyzer.initializeScopeRenderer(canvas);
+      // Initialize the analyzer with the canvas
+      const initialized = await analyzer.initialize(canvas);
 
       if (initialized) {
-        const renderer = analyzer.getScopeRenderer();
-        if (renderer) {
-          renderer.startRendering();
-        }
+        analyzer.startRendering();
       } else {
-        console.error("Failed to initialize ScopeRenderer");
+        console.error("Failed to initialize SimpleAnalyzer");
       }
     };
 

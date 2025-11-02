@@ -10,19 +10,19 @@
  * the device/adapter at construction time.
  */
 
-import { Analyzer } from "./analyzer";
+import { SimpleAnalyzer } from "./simple-analyzer";
 
 class AnalyzerServiceImpl {
-  private analyzer: Analyzer | null = null;
+  private analyzer: SimpleAnalyzer | null = null;
   private device: GPUDevice | null = null;
   private adapter: GPUAdapter | null = null;
-  private initializationPromise: Promise<Analyzer | null> | null = null;
+  private initializationPromise: Promise<SimpleAnalyzer | null> | null = null;
 
   /**
    * Get the singleton Analyzer instance
    * Creates the instance on first call (lazy initialization)
    */
-  async getAnalyzer(): Promise<Analyzer | null> {
+  async getAnalyzer(): Promise<SimpleAnalyzer | null> {
     // If already initialized, return it
     if (this.analyzer) {
       return this.analyzer;
@@ -43,7 +43,7 @@ class AnalyzerServiceImpl {
   /**
    * Create the Analyzer instance with WebGPU device and adapter
    */
-  private async createAnalyzer(): Promise<Analyzer | null> {
+  private async createAnalyzer(): Promise<SimpleAnalyzer | null> {
     try {
       // Initialize WebGPU device and adapter
       await this.initializeWebGPU();
@@ -53,12 +53,12 @@ class AnalyzerServiceImpl {
         return null;
       }
 
-      // Create the Analyzer instance
-      this.analyzer = new Analyzer(this.device, this.adapter);
-      console.log("Analyzer created successfully");
+      // Create the SimpleAnalyzer instance (only needs device)
+      this.analyzer = new SimpleAnalyzer(this.device);
+      console.log("SimpleAnalyzer created successfully");
       return this.analyzer;
     } catch (error) {
-      console.error("Failed to create Analyzer:", error);
+      console.error("Failed to create SimpleAnalyzer:", error);
       return null;
     }
   }
