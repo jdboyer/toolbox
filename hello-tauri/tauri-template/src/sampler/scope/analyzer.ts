@@ -152,10 +152,12 @@ export class Analyzer {
   }
 
   /**
-   * Reset the accumulator to initial state
+   * Reset the analyzer to initial state
+   * Clears accumulator and transformer buffers/indices
    */
   reset(): void {
     this.accumulator.reset();
+    this.transformer.reset();
   }
 
   /**

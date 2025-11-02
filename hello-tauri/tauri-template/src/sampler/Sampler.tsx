@@ -70,6 +70,10 @@ export function Sampler({ }: SamplerProps) {
           return;
         }
 
+        // Reset the analyzer to clear previous data
+        console.log("Resetting analyzer for new WAV file");
+        analyzer.reset();
+
         // Extract samples from t=0.8s to t=2s
         const startTime = 0.8; // seconds
         const endTime = 2.0; // seconds

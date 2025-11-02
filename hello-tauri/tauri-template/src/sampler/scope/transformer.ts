@@ -262,6 +262,27 @@ export class Transformer {
   }
 
   /**
+   * Reset transformer state to initial conditions
+   * Clears all buffers and resets ring buffer indices
+   */
+  reset(): void {
+    // Reset active buffer tracking
+    this.activeInputBufferIndex = 0;
+    this.activeInputBufferOffset = 0;
+
+    // Clear staging buffer
+    this.stagingBuffer.fill(0);
+
+    // Reset all ring buffers
+    this.inputBufferRing.reset();
+    this.outputBufferRing.reset();
+    this.textureBufferRing.reset();
+
+    // Note: We don't need to clear the GPU buffers/textures themselves
+    // as they will be overwritten when new data is processed
+  }
+
+  /**
    * Destroy all input buffers
    */
   private destroyInputBuffers(): void {
