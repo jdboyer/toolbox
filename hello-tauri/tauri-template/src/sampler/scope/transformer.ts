@@ -33,7 +33,7 @@ export interface TransformerConfig {
 const DEFAULT_CONFIG: TransformerConfig = {
   inputBufferSize: 65536,
   inputBufferCount: 2,
-  inputBufferOverlap: 4096,
+  inputBufferOverlap: 0,  // No overlap for complete file processing (avoid duplicate transforms)
   frequencyBinCount: 1024,
   timeSliceCount: 128,
   outputBufferCount: 4,
@@ -382,8 +382,8 @@ export class Transformer {
 
   /**
    * Perform wavelet transform (CQT) on the active input buffer
-   * Computes timeSliceCount CQTs with different offsets to populate one output buffer
-   * Also copies the result to a texture for visualization
+   * Computes ALL possible frames from the buffer, creating multiple textures if needed
+   * This ensures continuous time coverage with no gaps
    */
   private doTransform(): void {
     // Audio length is the current offset (how much we've filled so far)
@@ -393,21 +393,21 @@ export class Transformer {
     const hopLength = this.waveletTransform.getHopLength();
     const maxKernelLength = this.waveletTransform.getMaxKernelLength();
 
-    // Calculate how many time frames to compute using CQT formula
-    // We need at least maxKernelLength samples before we can compute the first frame
-    // CQT formula: (audioLength - maxKernelLength) / hopLength + 1
-    const numFrames = Math.min(
-      this.config.timeSliceCount,
-      Math.max(0, Math.floor((audioLength - maxKernelLength) / hopLength) + 1)
-    );
-
     // Skip transform if we don't have enough audio data
-    if (numFrames <= 0 || audioLength < maxKernelLength) {
-      console.log(`Skipping transform: numFrames=${numFrames}, audioLength=${audioLength}, maxKernelLength=${maxKernelLength}`);
+    if (audioLength < maxKernelLength) {
+      console.log(`Skipping transform: audioLength=${audioLength} < maxKernelLength=${maxKernelLength}`);
       return;
     }
 
-    console.log(`Running transform: audioLength=${audioLength}, numFrames=${numFrames}, writeIndex=${this.textureBufferRing.getWriteIndex()}`);
+    // Calculate total frames we can compute from this buffer
+    const totalFrames = Math.floor((audioLength - maxKernelLength) / hopLength) + 1;
+
+    if (totalFrames <= 0) {
+      console.log(`Skipping transform: totalFrames=${totalFrames}`);
+      return;
+    }
+
+    console.log(`Running transform: audioLength=${audioLength}, totalFrames=${totalFrames}, will create ${Math.ceil(totalFrames / this.config.timeSliceCount)} texture(s)`);
 
     // CRITICAL: Write the staging buffer to GPU BEFORE running the transform
     // Otherwise we'd be transforming an empty buffer!
@@ -420,71 +420,83 @@ export class Transformer {
       this.stagingBuffer.byteLength
     );
 
-    // Get the output buffers and textures
-    const outputBuffer = this.outputBufferRing.getWriteBuffer();
-    const texture = this.textureBufferRing.getWriteBuffer();
-    const textureArrayIndex = this.textureBufferRing.getWriteIndex();
+    // Process frames in batches of timeSliceCount (128)
+    let frameOffset = 0;
+    while (frameOffset < totalFrames) {
+      const numFrames = Math.min(this.config.timeSliceCount, totalFrames - frameOffset);
 
-    // Create command encoder for this transform
-    const commandEncoder = this.device.createCommandEncoder({
-      label: "wavelet-transform-commands",
-    });
+      // Get the output buffers and textures for this batch
+      const outputBuffer = this.outputBufferRing.getWriteBuffer();
+      const texture = this.textureBufferRing.getWriteBuffer();
+      const textureArrayIndex = this.textureBufferRing.getWriteIndex();
 
-    // Dispatch the CQT compute shader
-    this.waveletTransform.computeTransform(
-      inputBuffer,
-      outputBuffer,
-      audioLength,
-      numFrames,
-      commandEncoder,
-    );
+      console.log(`  Batch: frameOffset=${frameOffset}, numFrames=${numFrames}, textureIndex=${textureArrayIndex}`);
 
-    // Copy the output buffer to the texture
-    // Buffer layout: output[frame * numBins + bin] (column-major)
-    // Texture layout: width=numBins, height=numFrames
-    const actualNumBins = this.waveletTransform.getNumBins();
-    const bytesPerRow = Math.ceil((actualNumBins * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
+      // Create command encoder for this transform
+      const commandEncoder = this.device.createCommandEncoder({
+        label: `wavelet-transform-commands-offset-${frameOffset}`,
+      });
 
-    commandEncoder.copyBufferToTexture(
-      {
-        buffer: outputBuffer,
-        bytesPerRow: bytesPerRow,
-        rowsPerImage: this.config.timeSliceCount,
-      },
-      {
-        texture: texture,
-      },
-      {
-        width: actualNumBins,
-        height: this.config.timeSliceCount,
-        depthOrArrayLayers: 1,
-      }
-    );
+      // Dispatch the CQT compute shader with frame offset
+      this.waveletTransform.computeTransform(
+        inputBuffer,
+        outputBuffer,
+        audioLength,
+        numFrames,
+        commandEncoder,
+        frameOffset,
+      );
 
-    // Also copy to the texture array at the appropriate layer
-    commandEncoder.copyBufferToTexture(
-      {
-        buffer: outputBuffer,
-        bytesPerRow: bytesPerRow,
-        rowsPerImage: this.config.timeSliceCount,
-      },
-      {
-        texture: this.textureArray,
-        origin: { x: 0, y: 0, z: textureArrayIndex },
-      },
-      {
-        width: actualNumBins,
-        height: this.config.timeSliceCount,
-        depthOrArrayLayers: 1,
-      }
-    );
+      // Copy the output buffer to the texture
+      // Buffer layout: output[frame * numBins + bin] (column-major)
+      // Texture layout: width=numBins, height=numFrames
+      const actualNumBins = this.waveletTransform.getNumBins();
+      const bytesPerRow = Math.ceil((actualNumBins * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
 
-    // Submit the commands
-    this.device.queue.submit([commandEncoder.finish()]);
+      commandEncoder.copyBufferToTexture(
+        {
+          buffer: outputBuffer,
+          bytesPerRow: bytesPerRow,
+          rowsPerImage: numFrames,
+        },
+        {
+          texture: texture,
+        },
+        {
+          width: actualNumBins,
+          height: numFrames,
+          depthOrArrayLayers: 1,
+        }
+      );
 
-    // Advance both ring buffer write indices
-    this.outputBufferRing.advanceWrite();
-    this.textureBufferRing.advanceWrite();
+      // Also copy to the texture array at the appropriate layer
+      commandEncoder.copyBufferToTexture(
+        {
+          buffer: outputBuffer,
+          bytesPerRow: bytesPerRow,
+          rowsPerImage: numFrames,
+        },
+        {
+          texture: this.textureArray,
+          origin: { x: 0, y: 0, z: textureArrayIndex },
+        },
+        {
+          width: actualNumBins,
+          height: numFrames,
+          depthOrArrayLayers: 1,
+        }
+      );
+
+      // Submit the commands
+      this.device.queue.submit([commandEncoder.finish()]);
+
+      // Advance both ring buffer write indices
+      this.outputBufferRing.advanceWrite();
+      this.textureBufferRing.advanceWrite();
+
+      // Move to next batch
+      frameOffset += numFrames;
+    }
   }
 
   /**

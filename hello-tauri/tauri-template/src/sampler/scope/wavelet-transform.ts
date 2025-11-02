@@ -134,6 +134,7 @@ struct Params {
   maxKernelLength: u32,
   audioLength: u32,
   floatsPerRow: u32,  // Number of floats per row (including padding)
+  frameOffset: u32,   // Starting frame offset for continuous computation
 }
 
 @group(0) @binding(0) var<storage, read> audioData: array<f32>;
@@ -152,7 +153,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   let kernelLength = kernelLengths[bin];
-  let frameStart = frame * params.hopLength;
+  let frameStart = (frame + params.frameOffset) * params.hopLength;
 
   var sumReal: f32 = 0.0;
   var sumImag: f32 = 0.0;
@@ -252,7 +253,7 @@ export class WaveletTransform {
   private createParamsBuffer(): GPUBuffer {
     return this.device.createBuffer({
       label: "wavelet-params",
-      size: 6 * 4, // 6 u32 values (numBins, numFrames, hopLength, maxKernelLength, audioLength, floatsPerRow)
+      size: 7 * 4, // 7 u32 values (numBins, numFrames, hopLength, maxKernelLength, audioLength, floatsPerRow, frameOffset)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
@@ -290,6 +291,7 @@ export class WaveletTransform {
    * @param audioLength Number of audio samples in the input buffer
    * @param numFrames Number of time frames to compute
    * @param commandEncoder Command encoder to record commands into
+   * @param frameOffset Starting frame offset for continuous computation (default 0)
    */
   computeTransform(
     inputBuffer: GPUBuffer,
@@ -297,6 +299,7 @@ export class WaveletTransform {
     audioLength: number,
     numFrames: number,
     commandEncoder: GPUCommandEncoder,
+    frameOffset: number = 0,
   ): void {
     // Calculate floatsPerRow (256-byte aligned rows)
     const bytesPerRow = Math.ceil((this.kernel.numBins * 4) / 256) * 256;
@@ -310,6 +313,7 @@ export class WaveletTransform {
       this.kernel.maxKernelLength,
       audioLength,
       floatsPerRow,
+      frameOffset,
     ]);
     this.device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
 

@@ -110,6 +110,12 @@ export class ScopeRenderer {
       };
       @group(0) @binding(1) var<uniform> uniforms: Uniforms;
 
+      // Configuration constants
+      const hopLength = 256.0;
+      const inputBufferSize = 65536.0;
+      const inputBufferOverlap = 4096.0;
+      const timeSliceCount = 128;
+
       // Convert value to color using a spectrogram-like palette
       fn valueToColor(value: f32) -> vec3<f32> {
         // More aggressive scaling to see the data better
@@ -133,40 +139,30 @@ export class ScopeRenderer {
 
       @fragment
       fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-        // Each texture is displayed as a vertical tile
-        // uv.x (0-1) = horizontal position across all tiles
-        // uv.y (0-1) = vertical position (same for all tiles)
+        // Simplified approach: just display textures sequentially without overlap handling for now
+        let displayCount = max(1u, uniforms.activeTextureCount);
 
-        let totalCount = ${textureCount}u;
-        let displayCount = max(1u, uniforms.activeTextureCount);  // Show only populated tiles
-        let tileWidth = 1.0 / f32(displayCount);
+        // Calculate which texture we're in
+        let textureIndexFloat = uv.x * f32(displayCount);
+        let textureIndex = min(u32(textureIndexFloat), displayCount - 1u);
 
-        // Which tile are we in?
-        let tileIndex = u32(uv.x / tileWidth);
-
-        // Position within this tile (0-1)
-        let tileU = (uv.x - f32(tileIndex) * tileWidth) / tileWidth;
-        let tileV = 1.0 - uv.y; // Flip vertically so low frequencies are at bottom
-
-        // If we're beyond the tiles with data, show black
-        if (tileIndex >= displayCount) {
-          return vec4<f32>(0.0, 0.0, 0.0, 1.0);
-        }
+        // Position within this texture (0-1)
+        let posInTexture = fract(textureIndexFloat);
 
         // Get texture dimensions
-        // Texture layout: width=numBins (frequency), height=numFrames (time)
         let texDims = textureDimensions(textureArray);
 
-        // Map tile UV to texture coordinates
-        // Buffer is column-major: output[frame * numBins + bin]
-        // Each row in the texture = one bin across all frames
+        // Vertical position maps to frequency (flipped)
+        let tileV = 1.0 - uv.y;
+
+        // Map to texture coordinates
         let texCoord = vec2<i32>(
-          clamp(i32(tileV * f32(texDims.x)), 0, i32(texDims.x) - 1),  // Frequency bin (X in texture)
-          clamp(i32(tileU * f32(texDims.y)), 0, i32(texDims.y) - 1)   // Time frame (Y in texture)
+          clamp(i32(tileV * f32(texDims.x)), 0, i32(texDims.x) - 1),     // Frequency bin (X)
+          clamp(i32(posInTexture * f32(texDims.y)), 0, i32(texDims.y) - 1)  // Time frame (Y)
         );
 
         // Load from the texture array
-        let value = textureLoad(textureArray, texCoord, tileIndex, 0).r;
+        let value = textureLoad(textureArray, texCoord, textureIndex, 0).r;
 
         // Convert to color
         let color = valueToColor(value);
