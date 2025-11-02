@@ -59,6 +59,9 @@ export class Transformer {
   // Ring buffer for texture buffers (for visualization)
   private textureBufferRing: RingBuffer<GPUTexture>;
 
+  // Single 2D texture array for efficient rendering (holds all textures)
+  private textureArray: GPUTexture;
+
   // Track the current active input buffer index and sample offset
   private activeInputBufferIndex: number;
   private activeInputBufferOffset: number;
@@ -104,6 +107,9 @@ export class Transformer {
       (index) => this.createTexture(index)
     );
 
+    // Create a single 2D texture array for efficient rendering
+    this.textureArray = this.createTextureArray();
+
     // Create wavelet transform for CQT computation
     // TODO: Make these configurable via TransformerConfig
     const waveletConfig: WaveletTransformConfig = {
@@ -136,8 +142,9 @@ export class Transformer {
    */
   private createOutputBuffer(index: number): GPUBuffer {
     // Output is a 2D array: frequencyBinCount x timeSliceCount
-    const elementCount = this.config.frequencyBinCount * this.config.timeSliceCount;
-    const byteSize = elementCount * Float32Array.BYTES_PER_ELEMENT;
+    // Need to account for bytesPerRow alignment (must be multiple of 256)
+    const bytesPerRow = Math.ceil((this.config.timeSliceCount * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
+    const byteSize = bytesPerRow * this.config.frequencyBinCount;
 
     return this.device.createBuffer({
       label: `transformer-output-buffer-${index}`,
@@ -152,6 +159,7 @@ export class Transformer {
    */
   private createTexture(index: number): GPUTexture {
     // Texture has same 2D dimensions as output buffer
+    // Using r32float to match the buffer data format (unfilterable, use textureLoad)
     return this.device.createTexture({
       label: `transformer-texture-${index}`,
       size: {
@@ -161,6 +169,23 @@ export class Transformer {
       },
       format: "r32float",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+  }
+
+  /**
+   * Create a 2D texture array that holds all visualization frames
+   */
+  private createTextureArray(): GPUTexture {
+    // Using r32float to match the buffer data format (unfilterable, use textureLoad)
+    return this.device.createTexture({
+      label: "transformer-texture-array",
+      size: {
+        width: this.config.timeSliceCount,
+        height: this.config.frequencyBinCount,
+        depthOrArrayLayers: this.config.textureBufferCount,
+      },
+      format: "r32float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
     });
   }
 
@@ -216,10 +241,12 @@ export class Transformer {
     // Recreate textures if configuration changed
     if (textureConfigChanged) {
       this.destroyTextures();
+      this.textureArray.destroy();
       this.textureBufferRing = new RingBuffer<GPUTexture>(
         this.config.textureBufferCount,
         (index) => this.createTexture(index)
       );
+      this.textureArray = this.createTextureArray();
     }
   }
 
@@ -318,6 +345,7 @@ export class Transformer {
     const inputBuffer = this.inputBufferRing.getBuffer(this.activeInputBufferIndex);
     const outputBuffer = this.outputBufferRing.getWriteBuffer();
     const texture = this.textureBufferRing.getWriteBuffer();
+    const textureArrayIndex = this.textureBufferRing.getWriteIndex();
 
     // Calculate how many time frames to compute
     const numFrames = this.config.timeSliceCount;
@@ -340,14 +368,35 @@ export class Transformer {
     );
 
     // Copy the output buffer to the texture
+    // bytesPerRow must be a multiple of 256 for WebGPU
+    const bytesPerRow = Math.ceil((this.config.timeSliceCount * Float32Array.BYTES_PER_ELEMENT) / 256) * 256;
+
     commandEncoder.copyBufferToTexture(
       {
         buffer: outputBuffer,
-        bytesPerRow: this.config.timeSliceCount * Float32Array.BYTES_PER_ELEMENT,
+        bytesPerRow: bytesPerRow,
         rowsPerImage: this.config.frequencyBinCount,
       },
       {
         texture: texture,
+      },
+      {
+        width: this.config.timeSliceCount,
+        height: this.config.frequencyBinCount,
+        depthOrArrayLayers: 1,
+      }
+    );
+
+    // Also copy to the texture array at the appropriate layer
+    commandEncoder.copyBufferToTexture(
+      {
+        buffer: outputBuffer,
+        bytesPerRow: bytesPerRow,
+        rowsPerImage: this.config.frequencyBinCount,
+      },
+      {
+        texture: this.textureArray,
+        origin: { x: 0, y: 0, z: textureArrayIndex },
       },
       {
         width: this.config.timeSliceCount,
@@ -425,6 +474,13 @@ export class Transformer {
   }
 
   /**
+   * Get the texture array
+   */
+  getTextureArray(): GPUTexture {
+    return this.textureArray;
+  }
+
+  /**
    * Cleanup and destroy all WebGPU resources
    * Should be called when the transformer is no longer needed
    */
@@ -432,6 +488,7 @@ export class Transformer {
     this.destroyInputBuffers();
     this.destroyOutputBuffers();
     this.destroyTextures();
+    this.textureArray.destroy();
     this.waveletTransform.destroy();
   }
 }

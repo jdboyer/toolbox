@@ -88,12 +88,26 @@ export function Sampler({ }: SamplerProps) {
 
         console.log(`Extracted ${extractedSamples.length} samples from ${startTime}s to ${startTime + numSamples / sampleRate}s`);
         console.log(`Sample rate: ${sampleRate} Hz`);
+        console.log(`Sample value range: ${Math.min(...extractedSamples)} to ${Math.max(...extractedSamples)}`);
 
         // Convert to Float32Array and send to analyzer
         const samplesFloat32 = new Float32Array(extractedSamples);
         analyzer.processSamples(samplesFloat32);
 
         console.log("Samples sent to analyzer");
+
+        // Log transformer state
+        const transformer = analyzer.getTransformer();
+        const outputRing = transformer.getOutputBufferRing();
+        const textureRing = transformer.getTextureBufferRing();
+        console.log(`Output ring count: ${outputRing.getCount()}, Texture ring count: ${textureRing.getCount()}`);
+
+        // Trigger a manual render to update the view
+        const renderer = analyzer.getScopeRenderer();
+        if (renderer) {
+          console.log("Triggering manual render");
+          renderer.render();
+        }
       } catch (error) {
         console.error("Failed to process WAV data:", error);
       }

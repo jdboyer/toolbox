@@ -56,6 +56,7 @@ export class ScopeRenderer {
   private async createPipeline() {
     const transformer = this.analyzer.getTransformer();
     const textureCount = transformer.getConfig().textureBufferCount;
+    console.log(`Creating pipeline with ${textureCount} textures`);
 
     // Vertex shader - outputs full-screen quad with UV coordinates
     const vertexShaderCode = `
@@ -91,32 +92,62 @@ export class ScopeRenderer {
       }
     `;
 
-    // Fragment shader - samples from textures and renders them as tiles
+    // Fragment shader - loads from texture array and renders as spectrogram
+    // Note: Using textureLoad instead of textureSample because r32float is unfilterable
     const fragmentShaderCode = `
-      @group(0) @binding(0) var textureSampler: sampler;
-      ${Array.from({ length: textureCount }, (_, i) =>
-        `@group(0) @binding(${i + 1}) var texture${i}: texture_2d<f32>;`
-      ).join('\n      ')}
+      @group(0) @binding(0) var textureArray: texture_2d_array<f32>;
+
+      // Convert value to color using a spectrogram-like palette
+      fn valueToColor(value: f32) -> vec3<f32> {
+        // Logarithmic scaling for better visualization
+        let logValue = log2(max(abs(value), 0.00001));
+        let scaled = clamp((logValue + 20.0) / 20.0, 0.0, 1.0);
+
+        // Hot colormap: black -> red -> yellow -> white
+        if (scaled < 0.33) {
+          let t = scaled / 0.33;
+          return vec3<f32>(t, 0.0, 0.0);
+        } else if (scaled < 0.67) {
+          let t = (scaled - 0.33) / 0.34;
+          return vec3<f32>(1.0, t, 0.0);
+        } else {
+          let t = (scaled - 0.67) / 0.33;
+          return vec3<f32>(1.0, 1.0, t);
+        }
+      }
 
       @fragment
       fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-        let textureCount = ${textureCount};
-        let tileWidth = 1.0 / f32(textureCount);
+        // DEBUG: Uncomment to test if shader is running
+        // return vec4<f32>(uv.x, uv.y, 0.5, 1.0);
+
+        // Show only the most recent 64 textures
+        let displayCount = 64u;
+        let totalCount = ${textureCount}u;
+
+        let tileWidth = 1.0 / f32(displayCount);
         let tileIndex = u32(uv.x / tileWidth);
+
+        // Just show the first 64 textures for now (simplify)
+        let actualIndex = min(tileIndex, totalCount - 1u);
+
         let tileU = (uv.x - f32(tileIndex) * tileWidth) / tileWidth;
-        let tileV = uv.y;
-        let tileUV = vec2<f32>(tileU, tileV);
+        let tileV = 1.0 - uv.y; // Flip vertically so low frequencies are at bottom
 
-        var color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        // Get texture dimensions
+        let texDims = textureDimensions(textureArray);
+        let texCoord = vec2<i32>(
+          clamp(i32(tileU * f32(texDims.x)), 0, i32(texDims.x) - 1),
+          clamp(i32(tileV * f32(texDims.y)), 0, i32(texDims.y) - 1)
+        );
 
-        ${Array.from({ length: textureCount }, (_, i) =>
-          `if (tileIndex == ${i}u) {
-          let value = textureSample(texture${i}, textureSampler, tileUV).r;
-          color = vec4<f32>(value, value, value, 1.0);
-        }`
-        ).join(' else ')}
+        // Load from the texture array (no filtering)
+        let value = textureLoad(textureArray, texCoord, actualIndex, 0).r;
 
-        return color;
+        // Convert to color
+        let color = valueToColor(value);
+
+        return vec4<f32>(color, 1.0);
       }
     `;
 
@@ -152,44 +183,25 @@ export class ScopeRenderer {
   }
 
   /**
-   * Create bind group with all textures from the transformer
+   * Create bind group with the texture array from the transformer
    */
   private createBindGroup() {
     if (!this.pipeline) return;
 
     const transformer = this.analyzer.getTransformer();
-    const textureRing = transformer.getTextureBufferRing();
+    const textureArray = transformer.getTextureArray();
     const textureCount = transformer.getConfig().textureBufferCount;
+    console.log(`Creating bind group with texture array (${textureCount} layers)`);
 
-    // Create a sampler
-    const sampler = this.device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-    });
-
-    // Build bind group entries: sampler + all textures
-    const entries: GPUBindGroupEntry[] = [
-      {
-        binding: 0,
-        resource: sampler,
-      },
-    ];
-
-    // Add all textures from the ring buffer
-    for (let i = 0; i < textureCount; i++) {
-      const texture = textureRing.getBuffer(i);
-      entries.push({
-        binding: i + 1,
-        resource: texture.createView(),
-      });
-    }
-
-    // Create the bind group
+    // Create the bind group with just the texture array (no sampler needed for textureLoad)
     this.bindGroup = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
-      entries: entries,
+      entries: [
+        {
+          binding: 0,
+          resource: textureArray.createView(),
+        },
+      ],
     });
   }
 
