@@ -79,7 +79,8 @@ export function Sampler({ }: SamplerProps) {
 
         console.log(`Processing ${samplesFloat32.length} samples at ${wavData.sample_rate} Hz`);
         analyzer.processSamples(samplesFloat32);
-        console.log("Samples sent to analyzer - spectrogram should be rendering!")
+        console.log("Samples sent to analyzer - spectrogram should be rendering!");
+        console.log("Current column after processing:", analyzer.getCurrentColumn());
       } catch (error) {
         console.error("Failed to process WAV data:", error);
       }

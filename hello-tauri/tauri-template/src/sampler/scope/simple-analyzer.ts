@@ -44,6 +44,12 @@ export class SimpleAnalyzer {
     this.device = device;
     this.config = { ...DEFAULT_CONFIG };
     this.generateCQTKernels();
+    console.log("SimpleAnalyzer: CQT config:", {
+      numBins: this.numBins,
+      maxKernelLength: this.maxKernelLength,
+      hopLength: this.config.hopLength,
+      sampleRate: this.config.sampleRate
+    });
   }
 
   /**
@@ -200,7 +206,8 @@ export class SimpleAnalyzer {
     const textureWidth = this.renderer.getTextureWidth();
     const textureHeight = this.renderer.getTextureHeight();
 
-    while (this.audioBuffer.length >= this.maxKernelLength) {
+    let framesProcessed = 0;
+    while (this.audioBuffer.length >= this.maxKernelLength && this.currentColumn < textureWidth) {
       // Compute CQT for this window
       const cqtResult = this.computeCQT(0);
 
@@ -214,11 +221,20 @@ export class SimpleAnalyzer {
       // Write column to texture
       this.renderer.writeColumn(this.currentColumn, resized);
 
-      // Advance column (wrap around)
-      this.currentColumn = (this.currentColumn + 1) % textureWidth;
+      // Advance column (DON'T wrap - stop at texture width)
+      this.currentColumn++;
+      framesProcessed++;
+      if (this.currentColumn >= textureWidth) {
+        console.log("Spectrogram filled - processed", this.currentColumn, "frames");
+        break;
+      }
 
       // Slide window forward by hop length
       this.audioBuffer = this.audioBuffer.slice(hopLength);
+    }
+
+    if (framesProcessed > 0) {
+      console.log(`Processed ${framesProcessed} frames, column now at ${this.currentColumn}, buffer remaining: ${this.audioBuffer.length} samples (need ${this.maxKernelLength})`);
     }
   }
 
@@ -240,8 +256,16 @@ export class SimpleAnalyzer {
    * Reset state
    */
   reset() {
+    console.log("SimpleAnalyzer: Resetting - clearing", this.currentColumn, "columns");
     this.audioBuffer = new Float32Array(0);
     this.currentColumn = 0;
+  }
+
+  /**
+   * Get current column index (for debugging)
+   */
+  getCurrentColumn(): number {
+    return this.currentColumn;
   }
 
   /**

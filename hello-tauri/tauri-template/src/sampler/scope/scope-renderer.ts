@@ -12,6 +12,7 @@ export class ScopeRenderer {
   private pipeline: GPURenderPipeline | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private spectrogramTexture: GPUTexture | null = null;
+  private uniformBuffer: GPUBuffer | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private animationFrameId: number | null = null;
   private isRendering = false;
@@ -19,6 +20,10 @@ export class ScopeRenderer {
   // Texture dimensions
   private readonly TEXTURE_WIDTH = 1024;  // Time axis (number of columns)
   private readonly TEXTURE_HEIGHT = 256;  // Frequency axis (number of bins)
+
+  // Track how many columns have been filled
+  private filledColumns = 0;
+  private lastRenderColumn = -1;
 
   constructor(device: GPUDevice, _analyzer: Analyzer) {
     this.device = device;
@@ -53,6 +58,14 @@ export class ScopeRenderer {
     });
     console.log("ScopeRenderer: Created texture");
 
+    // Create uniform buffer for UV scale
+    this.uniformBuffer = this.device.createBuffer({
+      label: "uniform-buffer",
+      size: 16,  // f32 with padding to 16 bytes
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    console.log("ScopeRenderer: Created uniform buffer");
+
     // Create pipeline and bind group
     await this.createPipeline();
     console.log("ScopeRenderer: Created pipeline");
@@ -64,12 +77,17 @@ export class ScopeRenderer {
   }
 
   private async createPipeline() {
-    // Vertex shader: full-screen quad
+    // Vertex shader: full-screen quad with UVs
     const vertexShader = `
       struct VertexOutput {
         @builtin(position) position: vec4<f32>,
         @location(0) uv: vec2<f32>,
       };
+
+      struct Uniforms {
+        uvScaleX: f32,  // Scale UV.x to only sample filled portion
+      };
+      @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 
       @vertex
       fn main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
@@ -83,17 +101,18 @@ export class ScopeRenderer {
         );
 
         var uv = array<vec2<f32>, 6>(
-          vec2<f32>(0.0, 1.0),
-          vec2<f32>(1.0, 1.0),
-          vec2<f32>(0.0, 0.0),
-          vec2<f32>(0.0, 0.0),
-          vec2<f32>(1.0, 1.0),
-          vec2<f32>(1.0, 0.0),
+          vec2<f32>(0.0, 0.0),  // Bottom left - low frequency
+          vec2<f32>(1.0, 0.0),  // Bottom right
+          vec2<f32>(0.0, 1.0),  // Top left - high frequency
+          vec2<f32>(0.0, 1.0),  // Top left
+          vec2<f32>(1.0, 0.0),  // Bottom right
+          vec2<f32>(1.0, 1.0),  // Top right
         );
 
         var output: VertexOutput;
         output.position = vec4<f32>(pos[vertexIndex], 0.0, 1.0);
-        output.uv = uv[vertexIndex];
+        // Scale UV.x to only sample the filled portion of the texture
+        output.uv = vec2<f32>(uv[vertexIndex].x * uniforms.uvScaleX, uv[vertexIndex].y);
         return output;
       }
     `;
@@ -169,7 +188,7 @@ export class ScopeRenderer {
   }
 
   private createBindGroup() {
-    if (!this.pipeline || !this.spectrogramTexture) return;
+    if (!this.pipeline || !this.spectrogramTexture || !this.uniformBuffer) return;
 
     // Create sampler
     const sampler = this.device.createSampler({
@@ -190,6 +209,12 @@ export class ScopeRenderer {
           binding: 1,
           resource: sampler,
         },
+        {
+          binding: 2,
+          resource: {
+            buffer: this.uniformBuffer,
+          },
+        },
       ],
     });
   }
@@ -201,6 +226,13 @@ export class ScopeRenderer {
    */
   writeColumn(columnIndex: number, frequencyData: Float32Array) {
     if (!this.spectrogramTexture) return;
+
+    // Track max column filled
+    this.filledColumns = Math.max(this.filledColumns, columnIndex + 1);
+
+    // Trigger a single render after writing
+    const needsRender = !this.lastRenderColumn || columnIndex > this.lastRenderColumn;
+    this.lastRenderColumn = columnIndex;
 
     // For rgba16float: 4 channels * 2 bytes per f16 = 8 bytes per pixel
     // We need to convert Float32 to Float16 (Uint16 representation)
@@ -241,6 +273,11 @@ export class ScopeRenderer {
       },
       [1, this.TEXTURE_HEIGHT, 1]
     );
+
+    // Render once after writing data
+    if (needsRender) {
+      this.render();
+    }
   }
 
   /**
@@ -266,13 +303,8 @@ export class ScopeRenderer {
   }
 
   startRendering() {
-    if (this.isRendering) {
-      console.log("ScopeRenderer: Already rendering");
-      return;
-    }
-    console.log("ScopeRenderer: Starting render loop");
-    this.isRendering = true;
-    this.renderFrame();
+    // Don't start continuous rendering - we'll just render once when data changes
+    console.log("ScopeRenderer: Render on demand only");
   }
 
   stopRendering() {
@@ -284,24 +316,36 @@ export class ScopeRenderer {
   }
 
   private frameCount = 0;
+  private lastFilledColumns = 0;
 
   private renderFrame = () => {
     this.frameCount++;
-    if (this.frameCount % 60 === 0) {
-      console.log("ScopeRenderer: Rendering frame", this.frameCount);
+
+    // Only log when data changes or every 60 frames
+    if (this.lastFilledColumns !== this.filledColumns) {
+      console.log("ScopeRenderer: Data changed, filledColumns:", this.filledColumns);
+      this.lastFilledColumns = this.filledColumns;
+    } else if (this.frameCount % 300 === 0) {
+      console.log("ScopeRenderer: Still rendering (frame", this.frameCount, ")");
     }
 
-    if (!this.isRendering || !this.context || !this.pipeline || !this.bindGroup) {
+    if (!this.isRendering || !this.context || !this.pipeline || !this.bindGroup || !this.uniformBuffer) {
       console.error("ScopeRenderer: Cannot render - missing:", {
         isRendering: this.isRendering,
         hasContext: !!this.context,
         hasPipeline: !!this.pipeline,
-        hasBindGroup: !!this.bindGroup
+        hasBindGroup: !!this.bindGroup,
+        hasUniformBuffer: !!this.uniformBuffer
       });
       return;
     }
 
     try {
+      // Update uniform buffer with UV scale
+      const uvScaleX = this.filledColumns > 0 ? this.filledColumns / this.TEXTURE_WIDTH : 1.0;
+      const uniformData = new Float32Array([uvScaleX, 0, 0, 0]);
+      this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+
       const commandEncoder = this.device.createCommandEncoder();
       const textureView = this.context.getCurrentTexture().createView();
 
@@ -332,9 +376,14 @@ export class ScopeRenderer {
   };
 
   render() {
-    if (!this.context || !this.pipeline || !this.bindGroup) return;
+    if (!this.context || !this.pipeline || !this.bindGroup || !this.uniformBuffer) return;
 
     try {
+      // Update uniform buffer with UV scale
+      const uvScaleX = this.filledColumns > 0 ? this.filledColumns / this.TEXTURE_WIDTH : 1.0;
+      const uniformData = new Float32Array([uvScaleX, 0, 0, 0]);
+      this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+
       const commandEncoder = this.device.createCommandEncoder();
       const textureView = this.context.getCurrentTexture().createView();
 
