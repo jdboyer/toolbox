@@ -20,6 +20,8 @@ export interface CQTConfig {
   blockSize: number;
   /** Batch factor - determines hop length and output columns (blockSize must be divisible by batchFactor) */
   batchFactor: number;
+  /** Maximum number of blocks to store in the output buffer */
+  maxBlocks: number;
 }
 
 interface CQTKernel {
@@ -49,11 +51,14 @@ export class WaveletTransform {
   // Configuration state
   private configured: boolean = false;
   private configuredInputBuffer: GPUBuffer | null = null;
-  private configuredOutputBuffer: GPUBuffer | null = null;
   private configuredInputLength: number = 0;
   private bindGroup: GPUBindGroup | null = null;
   private paramsBuffer: GPUBuffer | null = null;
   private maxKernelLength: number = 0;
+
+  // Output buffer (owned by WaveletTransform)
+  private outputBuffer: GPUBuffer | null = null;
+  private maxTimeFrames: number = 0; // Total time frames that can be stored
 
   /**
    * Create a WaveletTransform instance
@@ -84,6 +89,11 @@ export class WaveletTransform {
       );
     }
 
+    // Validate maxBlocks
+    if (!Number.isInteger(config.maxBlocks) || config.maxBlocks <= 0) {
+      throw new Error(`maxBlocks must be a positive integer, got ${config.maxBlocks}`);
+    }
+
     // Calculate hop length
     this.hopLength = config.blockSize / config.batchFactor;
 
@@ -91,11 +101,22 @@ export class WaveletTransform {
     const octaves = Math.log2(config.fMax / config.fMin);
     this.numBins = Math.ceil(octaves * config.binsPerOctave);
 
+    // Calculate total time frames that can be stored
+    // Each block produces batchFactor time frames (hops)
+    this.maxTimeFrames = config.batchFactor * config.maxBlocks;
+
     // Generate kernels for each frequency bin
     this.generateKernels();
 
     // Initialize WebGPU resources
     this.initializeWebGPU();
+
+    // Create output buffer (2D array: rows = time frames, columns = frequency bins)
+    // Size: maxTimeFrames (rows) * numBins (columns) * 4 bytes per float
+    this.outputBuffer = this.device.createBuffer({
+      size: this.maxTimeFrames * this.numBins * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
   }
 
   /**
@@ -315,19 +336,21 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   }
 
   /**
-   * Configure the transform with input and output buffers
+   * Configure the transform with input buffer
    * This should be called once before calling transform()
    * @param inputBuffer GPU buffer containing input audio samples
-   * @param outputBuffer GPU buffer for output CQT magnitudes (2D array: [time][frequency])
    * @param inputLength Total length of input buffer (in samples)
    */
   configure(
     inputBuffer: GPUBuffer,
-    outputBuffer: GPUBuffer,
     inputLength: number
   ): void {
     if (!this.pipeline || !this.bindGroupLayout || !this.kernelBuffer || !this.kernelInfoBuffer) {
       throw new Error("WaveletTransform not properly initialized");
+    }
+
+    if (!this.outputBuffer) {
+      throw new Error("Output buffer not created");
     }
 
     // Clean up previous configuration if it exists
@@ -338,7 +361,6 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     // Store configuration
     this.configuredInputBuffer = inputBuffer;
-    this.configuredOutputBuffer = outputBuffer;
     this.configuredInputLength = inputLength;
 
     // Create parameters buffer (will be updated during transform)
@@ -352,7 +374,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
       layout: this.bindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: inputBuffer } },
-        { binding: 1, resource: { buffer: outputBuffer } },
+        { binding: 1, resource: { buffer: this.outputBuffer } },
         { binding: 2, resource: { buffer: this.kernelBuffer } },
         { binding: 3, resource: { buffer: this.kernelInfoBuffer } },
         { binding: 4, resource: { buffer: this.paramsBuffer } },
@@ -457,6 +479,23 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   }
 
   /**
+   * Get the output buffer (2D array: rows = time frames, columns = frequency bins)
+   */
+  getOutputBuffer(): GPUBuffer {
+    if (!this.outputBuffer) {
+      throw new Error("Output buffer not created");
+    }
+    return this.outputBuffer;
+  }
+
+  /**
+   * Get the maximum number of time frames that can be stored
+   */
+  getMaxTimeFrames(): number {
+    return this.maxTimeFrames;
+  }
+
+  /**
    * Reset the wavelet transform to initial state
    */
   reset(): void {
@@ -470,9 +509,9 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     this.kernelBuffer?.destroy();
     this.kernelInfoBuffer?.destroy();
     this.paramsBuffer?.destroy();
+    this.outputBuffer?.destroy();
     this.configured = false;
     this.configuredInputBuffer = null;
-    this.configuredOutputBuffer = null;
     this.bindGroup = null;
   }
 }
