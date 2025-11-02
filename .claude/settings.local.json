@@ -10,7 +10,8 @@
       "Bash(deno test src/sampler/scope/wavelet-transform.test.ts src/sampler/scope/accumulator.test.ts src/sampler/scope/data-flow.test.ts src/sampler/scope/frame-calculation.test.ts src/sampler/scope/sample-count.test.ts)",
       "Bash(deno test src/sampler/scope/cqt-analyzer-comparison.test.ts --allow-read)",
       "Bash(deno test src/sampler/scope/cqt-analyzer-comparison.test.ts --allow-read --no-check)",
-      "Bash(deno test src/sampler/scope/spectrogram-comparison.test.ts --allow-read --no-check)"
+      "Bash(deno test src/sampler/scope/spectrogram-comparison.test.ts --allow-read --no-check)",
+      "Bash(deno test src/sampler/scope/ --allow-read --no-check)"
     ],
     "deny": [],
     "ask": []
