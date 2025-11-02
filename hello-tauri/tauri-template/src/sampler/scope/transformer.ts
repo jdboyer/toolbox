@@ -52,14 +52,8 @@ export class Transformer {
   private accumulator: Accumulator;
   private config: TransformerConfig;
 
-  // WebGPU buffers
-  private inputBuffer: GPUBuffer;
-  private inputBufferWriteOffset: number = 0;
-  private readonly INPUT_BUFFER_SIZE = 4096 * 16; // samples
-
   // CQT parameters
   private minWindowSize: number; // Minimum samples needed for CQT
-  private lastProcessedBlockIndex: number = -1;
 
   /**
    * Create a Transformer instance
@@ -68,7 +62,6 @@ export class Transformer {
    */
   constructor(device: GPUDevice, config?: Partial<TransformerConfig>) {
     this.device = device;
-    this.accumulator = new Accumulator(this.device);
 
     // Set default configuration
     const defaultFreqRange = getDefaultFrequencyRange();
@@ -83,13 +76,15 @@ export class Transformer {
     };
 
     // Calculate minimum window size for CQT
-    this.minWindowSize = this.calculateMinWindowSize();
+    this.minWindowSize = this.calculateMinWindowSize() + this.config.hopLength;
 
-    // Create input buffer (4096 * 16 samples = 65536 * 4 bytes)
-    this.inputBuffer = this.device.createBuffer({
-      size: this.INPUT_BUFFER_SIZE * 4, // Float32 = 4 bytes
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
+    // Create accumulator with minWindowSize for proper buffer management
+    this.accumulator = new Accumulator(
+      this.device,
+      this.config.blockSize,
+      this.config.maxBlocks,
+      this.minWindowSize
+    );
   }
 
 
@@ -110,7 +105,7 @@ export class Transformer {
   /**
    * Add samples to the transformer
    * Samples are added to the accumulator in chunks of at most 65536 samples
-   * If complete blocks are filled, processBlocks() is called automatically
+   * The accumulator automatically prepares the output buffer when blocks are completed
    * @param samples Float32Array containing audio samples
    */
   addSamples(samples: Float32Array): void {
@@ -122,74 +117,11 @@ export class Transformer {
       const chunkSize = Math.min(MAX_CHUNK_SIZE, remainingSamples);
       const chunk = samples.subarray(offset, offset + chunkSize);
 
-      const buffersCompleted = this.accumulator.addSamples(chunk);
-
-      // Process any newly completed blocks
-      if (buffersCompleted > 0) {
-        this.processBlocks();
-      }
+      // Accumulator handles block completion and output buffer preparation
+      this.accumulator.addSamples(chunk);
 
       offset += chunkSize;
     }
-  }
-  /**
-   * Process blocks from the accumulator
-   * Iterates through newly completed blocks and prepares them for CQT
-   */
-  processBlocks(): void {
-    const totalBuffersWritten = this.accumulator.getInputRingBuffer().getTotalBuffersWritten();
-    const currentBlockIndex = totalBuffersWritten - 1;
-
-    // Process all blocks since last processed
-    for (let i = this.lastProcessedBlockIndex + 1; i <= currentBlockIndex; i++) {
-      this.prepareBuffer(i);
-    }
-
-    this.lastProcessedBlockIndex = currentBlockIndex;
-  }
-
-  /**
-   * Prepare the input buffer with samples from a completed block
-   * Handles buffer overflow by resetting and backfilling with previous blocks
-   * @param blockIndex Index of the block to prepare
-   */
-  private prepareBuffer(blockIndex: number): void {
-    const blockSize = this.accumulator.getBlockSize();
-    const samplesNeeded = blockSize;
-
-    // Check if there's enough room in the input buffer
-    if (this.inputBufferWriteOffset + samplesNeeded > this.INPUT_BUFFER_SIZE) {
-      // Not enough room - reset buffer and backfill with previous blocks
-      this.inputBufferWriteOffset = 0;
-
-      // Calculate how many previous blocks we need to maintain at least minWindowSize
-      const blocksNeeded = Math.ceil(this.minWindowSize / blockSize);
-      const startBlockIndex = Math.max(0, blockIndex - blocksNeeded + 1);
-
-      // Copy previous blocks to ensure we have enough context for CQT
-      for (let i = startBlockIndex; i < blockIndex; i++) {
-        const buffer = this.accumulator.getInputBuffer(i);
-        this.device.queue.writeBuffer(
-          this.inputBuffer,
-          this.inputBufferWriteOffset * 4, // byte offset
-          buffer.buffer,
-          buffer.byteOffset,
-          buffer.byteLength
-        );
-        this.inputBufferWriteOffset += blockSize;
-      }
-    }
-
-    // Copy the current block into the input buffer
-    const buffer = this.accumulator.getInputBuffer(blockIndex);
-    this.device.queue.writeBuffer(
-      this.inputBuffer,
-      this.inputBufferWriteOffset * 4, // byte offset
-      buffer.buffer,
-      buffer.byteOffset,
-      buffer.byteLength
-    );
-    this.inputBufferWriteOffset += samplesNeeded;
   }
 
   /**
@@ -197,15 +129,13 @@ export class Transformer {
    */
   reset(): void {
     this.accumulator.reset();
-    this.inputBufferWriteOffset = 0;
-    this.lastProcessedBlockIndex = -1;
   }
 
   /**
    * Cleanup and destroy WebGPU resources
    */
   destroy(): void {
-    this.inputBuffer.destroy();
+    this.accumulator.destroy();
   }
 
   /**
