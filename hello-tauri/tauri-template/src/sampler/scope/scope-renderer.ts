@@ -25,6 +25,12 @@ export class ScopeRenderer {
   private filledColumns = 0;
   private lastRenderColumn = -1;
 
+  // Time axis parameters (in milliseconds for timeRange/timeOffset)
+  private timeRange = 6000; // ms - show 6 seconds by default
+  private timeOffset = 0; // ms
+  private sampleRate = 48000; // Hz
+  private hopLength = 512; // samples per frame
+
   constructor(device: GPUDevice, _analyzer: Analyzer) {
     this.device = device;
     this.format = navigator.gpu?.getPreferredCanvasFormat() || "bgra8unorm";
@@ -58,10 +64,10 @@ export class ScopeRenderer {
     });
     console.log("ScopeRenderer: Created texture");
 
-    // Create uniform buffer for UV scale
+    // Create uniform buffer for UV parameters
     this.uniformBuffer = this.device.createBuffer({
       label: "uniform-buffer",
-      size: 16,  // f32 with padding to 16 bytes
+      size: 16,  // 3 f32s + padding (uvScaleX, uvOffsetX, uvRangeX, padding)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     console.log("ScopeRenderer: Created uniform buffer");
@@ -85,7 +91,9 @@ export class ScopeRenderer {
       };
 
       struct Uniforms {
-        uvScaleX: f32,  // Scale UV.x to only sample filled portion
+        uvScaleX: f32,    // Scale UV.x to only sample filled portion
+        uvOffsetX: f32,   // Offset UV.x for time scrolling
+        uvRangeX: f32,    // Range of UV.x to display (for zoom)
       };
       @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 
@@ -111,8 +119,13 @@ export class ScopeRenderer {
 
         var output: VertexOutput;
         output.position = vec4<f32>(pos[vertexIndex], 0.0, 1.0);
-        // Scale UV.x to only sample the filled portion of the texture
-        output.uv = vec2<f32>(uv[vertexIndex].x * uniforms.uvScaleX, uv[vertexIndex].y);
+
+        // Map screen UV (0-1) to texture UV based on time axis
+        // 1. Apply zoom (uvRangeX)
+        // 2. Apply scroll offset (uvOffsetX)
+        // 3. Scale to filled portion (uvScaleX)
+        let texU = (uv[vertexIndex].x * uniforms.uvRangeX + uniforms.uvOffsetX) * uniforms.uvScaleX;
+        output.uv = vec2<f32>(texU, uv[vertexIndex].y);
         return output;
       }
     `;
@@ -379,9 +392,25 @@ export class ScopeRenderer {
     if (!this.context || !this.pipeline || !this.bindGroup || !this.uniformBuffer) return;
 
     try {
-      // Update uniform buffer with UV scale
+      // Calculate time axis mapping
+      // Total duration of spectrogram in seconds
+      const totalDurationSeconds = (this.filledColumns * this.hopLength) / this.sampleRate;
+
+      // Convert timeRange and timeOffset from ms to seconds
+      const timeRangeSeconds = this.timeRange / 1000;
+      const timeOffsetSeconds = this.timeOffset / 1000;
+
+      // Calculate UV parameters
+      // uvOffsetX: what fraction of the texture to skip (based on timeOffset)
+      const uvOffsetX = totalDurationSeconds > 0 ? timeOffsetSeconds / totalDurationSeconds : 0;
+
+      // uvRangeX: what fraction of the texture to show (based on timeRange)
+      const uvRangeX = totalDurationSeconds > 0 ? timeRangeSeconds / totalDurationSeconds : 1.0;
+
+      // uvScaleX: scale to only show filled portion
       const uvScaleX = this.filledColumns > 0 ? this.filledColumns / this.TEXTURE_WIDTH : 1.0;
-      const uniformData = new Float32Array([uvScaleX, 0, 0, 0]);
+
+      const uniformData = new Float32Array([uvScaleX, uvOffsetX, uvRangeX, 0]);
       this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
 
       const commandEncoder = this.device.createCommandEncoder();
@@ -434,5 +463,20 @@ export class ScopeRenderer {
 
   getTextureHeight(): number {
     return this.TEXTURE_HEIGHT;
+  }
+
+  /**
+   * Set time axis parameters to control visible portion
+   * @param timeRange Total time range to display (ms)
+   * @param timeOffset Time offset from start (ms)
+   * @param sampleRate Sample rate (Hz)
+   */
+  setTimeAxis(timeRange: number, timeOffset: number, sampleRate: number) {
+    this.timeRange = timeRange;
+    this.timeOffset = timeOffset;
+    this.sampleRate = sampleRate;
+
+    // Trigger re-render with new time axis
+    this.render();
   }
 }

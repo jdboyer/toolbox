@@ -17,9 +17,9 @@ interface CQTConfig {
 
 const DEFAULT_CONFIG: CQTConfig = {
   sampleRate: 48000,
-  fmin: 20,
+  fmin: 50,
   fmax: 20000,
-  binsPerOctave: 12,
+  binsPerOctave: 36,
   hopLength: 512,
 };
 
@@ -234,7 +234,11 @@ export class SimpleAnalyzer {
     }
 
     if (framesProcessed > 0) {
-      console.log(`Processed ${framesProcessed} frames, column now at ${this.currentColumn}, buffer remaining: ${this.audioBuffer.length} samples (need ${this.maxKernelLength})`);
+      const skippedSamples = this.audioBuffer.length;
+      const totalSamplesProcessed = (this.currentColumn * this.config.hopLength) + this.maxKernelLength - skippedSamples;
+      const timeSeconds = totalSamplesProcessed / this.config.sampleRate;
+      console.log(`Processed ${framesProcessed} frames, column now at ${this.currentColumn}, skipped last ${skippedSamples} samples (need ${this.maxKernelLength} for another frame)`);
+      console.log(`Spectrogram covers approximately ${timeSeconds.toFixed(2)} seconds of audio (${totalSamplesProcessed} samples at ${this.config.sampleRate} Hz)`);
     }
   }
 

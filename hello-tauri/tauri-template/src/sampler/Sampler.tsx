@@ -140,6 +140,9 @@ export function Sampler({ }: SamplerProps) {
         <ScopeView
           canvasWidth={canvasWidth}
           canvasHeight={frequencyDomainHeight}
+          timeRange={timeRange}
+          timeOffset={timeOffset}
+          sampleRate={wavData?.sample_rate || 48000}
         />
       </div>
     </Stack>

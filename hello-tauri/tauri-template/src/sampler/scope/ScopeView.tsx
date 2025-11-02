@@ -4,9 +4,12 @@ import AnalyzerService from "./analyzer-service";
 interface ScopeViewProps {
   canvasWidth: number;
   canvasHeight?: number;
+  timeRange: number;
+  timeOffset: number;
+  sampleRate: number;
 }
 
-export function ScopeView({ canvasWidth, canvasHeight = 400 }: ScopeViewProps) {
+export function ScopeView({ canvasWidth, canvasHeight = 400, timeRange, timeOffset, sampleRate }: ScopeViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -39,6 +42,21 @@ export function ScopeView({ canvasWidth, canvasHeight = 400 }: ScopeViewProps) {
       // The analyzer service manages the lifecycle
     };
   }, [canvasWidth, canvasHeight]);
+
+  // Update renderer with time axis parameters when they change
+  useEffect(() => {
+    const updateTimeAxis = async () => {
+      const analyzer = await AnalyzerService.getAnalyzer();
+      if (!analyzer) return;
+
+      const renderer = analyzer.getScopeRenderer();
+      if (renderer) {
+        renderer.setTimeAxis(timeRange, timeOffset, sampleRate);
+      }
+    };
+
+    updateTimeAxis();
+  }, [timeRange, timeOffset, sampleRate]);
 
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
