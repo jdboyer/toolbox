@@ -1,5 +1,6 @@
 import { Accumulator } from "./accumulator.ts";
 import { WaveletTransform, type CQTConfig } from "./wavelet-transform.ts";
+import { Spectrogram, type SpectrogramConfig } from "./spectrogram.ts";
 
 export interface TransformerConfig {
   /** Sample rate in Hz (e.g., 44100, 48000) */
@@ -53,9 +54,13 @@ export class Transformer {
   private accumulator: Accumulator;
   private config: TransformerConfig;
   private waveletTransform: WaveletTransform;
+  private spectrogram: Spectrogram;
 
   // CQT parameters
   private minWindowSize: number; // Minimum samples needed for CQT
+
+  // Tracking for spectrogram updates
+  private lastSpectrogramFrame: number = 0; // Last frame written to spectrogram
 
   /**
    * Create a Transformer instance
@@ -105,6 +110,21 @@ export class Transformer {
     this.waveletTransform.configure(
       this.accumulator.getOutputBuffer(),
       this.accumulator.getOutputBufferSize()
+    );
+
+    // Create spectrogram
+    const spectrogramConfig: Partial<SpectrogramConfig> = {
+      textureCount: 8, // 8 textures in the ring buffer
+      framesPerTexture: 1024, // 1024 frames per texture
+      numBins: this.waveletTransform.getNumBins(),
+    };
+    this.spectrogram = new Spectrogram(this.device, spectrogramConfig);
+
+    // Configure the spectrogram with the CQT output buffer
+    this.spectrogram.configure(
+      this.waveletTransform.getOutputBuffer(),
+      this.waveletTransform.getNumBins(),
+      this.waveletTransform.getMaxTimeFrames()
     );
   }
 
@@ -164,6 +184,17 @@ export class Transformer {
       // Perform CQT transform (buffers already configured in constructor)
       // WaveletTransform now manages its own write position and always generates blockSize/batchFactor frames
       this.waveletTransform.transform(inputOffset);
+
+      // Update spectrogram textures with the newly generated CQT data
+      // Calculate how many frames were just generated
+      const framesGenerated = this.waveletTransform.getBatchFactor();
+      const currentFrame = this.lastSpectrogramFrame + framesGenerated;
+
+      // Update textures with the new frame range
+      this.spectrogram.updateTextures(this.lastSpectrogramFrame, currentFrame);
+
+      // Update tracking (wrap around at max)
+      this.lastSpectrogramFrame = currentFrame % this.waveletTransform.getMaxTimeFrames();
     }
   }
 
@@ -173,6 +204,8 @@ export class Transformer {
   reset(): void {
     this.accumulator.reset();
     this.waveletTransform.reset();
+    this.spectrogram.reset();
+    this.lastSpectrogramFrame = 0;
   }
 
   /**
@@ -181,6 +214,7 @@ export class Transformer {
   destroy(): void {
     this.accumulator.destroy();
     this.waveletTransform.destroy();
+    this.spectrogram.destroy();
   }
 
   /**
@@ -202,6 +236,13 @@ export class Transformer {
    */
   getWaveletTransform(): WaveletTransform {
     return this.waveletTransform;
+  }
+
+  /**
+   * Get the spectrogram instance
+   */
+  getSpectrogram(): Spectrogram {
+    return this.spectrogram;
   }
 
   /**
