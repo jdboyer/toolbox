@@ -175,34 +175,27 @@ struct Params {
 @group(0) @binding(2) var<uniform> params: Params;
 
 // Convert magnitude to color using a "hot" colormap (black -> red -> yellow -> white)
-fn magnitudeToColor(magnitude: f32) -> vec4<f32> {
-  // Apply logarithmic scaling for better visualization
-  // Add small epsilon to avoid log(0)
-  let epsilon = 0.0001;
-  let logMag = log(magnitude + epsilon);
-
-  // Normalize to 0-1 range (tune these values based on your data)
-  let minLog = log(epsilon);
-  let maxLog = log(10.0); // Adjust this based on typical magnitude range
-  let normalized = clamp((logMag - minLog) / (maxLog - minLog), 0.0, 1.0);
-
-  // Apply a power curve for better contrast
-  let intensity = pow(normalized, 0.5);
+// Uses linear scaling to match CPU-side saveCQTAsPNG function
+fn magnitudeToColor(magnitude: f32, minVal: f32, maxVal: f32) -> vec4<f32> {
+  // Linear normalization to 0-1 range
+  let range = maxVal - minVal;
+  let normalized = clamp((magnitude - minVal) / range, 0.0, 1.0);
 
   // Hot colormap interpolation
   var color: vec3<f32>;
 
-  if (intensity < 0.33) {
+  // Thresholds: 0-85/255, 85-170/255, 170-255/255
+  if (normalized < 0.333333) {
     // Black to red
-    let t = intensity / 0.33;
+    let t = normalized / 0.333333;
     color = vec3<f32>(t, 0.0, 0.0);
-  } else if (intensity < 0.66) {
+  } else if (normalized < 0.666667) {
     // Red to yellow
-    let t = (intensity - 0.33) / 0.33;
+    let t = (normalized - 0.333333) / 0.333333;
     color = vec3<f32>(1.0, t, 0.0);
   } else {
     // Yellow to white
-    let t = (intensity - 0.66) / 0.34;
+    let t = (normalized - 0.666667) / 0.333333;
     color = vec3<f32>(1.0, 1.0, t);
   }
 
@@ -226,8 +219,12 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   // Read magnitude value from input buffer
   let magnitude = inputBuffer[inputIdx];
 
-  // Convert magnitude to color
-  let color = magnitudeToColor(magnitude);
+  // Convert magnitude to color using fixed normalization range
+  // This matches how saveCQTAsPNG normalizes with min/max
+  // For typical CQT output, magnitudes range from 0.0 to ~2.0
+  let minVal = 0.0;
+  let maxVal = 2.0;
+  let color = magnitudeToColor(magnitude, minVal, maxVal);
 
   // Calculate output texture position
   let outputX = (params.outputStartX + texX) % params.textureWidth;

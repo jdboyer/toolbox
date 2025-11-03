@@ -20,25 +20,21 @@ export async function saveCQTAsPNG(
   // Create RGBA image data
   const imageData = new Uint8Array(width * height * 4);
 
-  // Find min/max for normalization
-  let min = Infinity;
-  let max = -Infinity;
-  for (let i = 0; i < data.length; i++) {
-    if (data[i] < min) min = data[i];
-    if (data[i] > max) max = data[i];
-  }
+  // Use fixed normalization range to match GPU shader
+  // For typical CQT output, magnitudes range from 0.0 to ~2.0
+  const minVal = 0.0;
+  const maxVal = 2.0;
+  const range = maxVal - minVal;
 
-  const range = max - min || 1; // Avoid division by zero
-
-  // Convert to grayscale image (flip vertically so low frequencies are at bottom)
+  // Convert to image (flip vertically so low frequencies are at bottom)
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       // Read from data: data[time_frame][frequency_bin]
       const dataIndex = x * height + y;
       const value = data[dataIndex];
 
-      // Normalize to 0-255
-      const normalized = Math.floor(((value - min) / range) * 255);
+      // Normalize to 0-255 (linear scaling with fixed range)
+      const normalized = Math.floor(Math.max(0, Math.min(1, (value - minVal) / range)) * 255);
 
       // Flip vertically (so low frequencies are at bottom of image)
       const flippedY = height - 1 - y;

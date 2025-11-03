@@ -59,28 +59,9 @@ async function readTexture(
 }
 
 /**
- * Convert RGBA texture data to grayscale for saving as PNG
- * Extracts intensity from the hot colormap (black->red->yellow->white)
- */
-function rgbaToGrayscale(rgba: Uint8Array, width: number, height: number): Uint8Array {
-  const grayscale = new Uint8Array(width * height);
-
-  for (let i = 0; i < width * height; i++) {
-    const offset = i * 4;
-    const r = rgba[offset];
-    const g = rgba[offset + 1];
-    const b = rgba[offset + 2];
-
-    // Average RGB channels to get intensity
-    grayscale[i] = Math.floor((r + g + b) / 3);
-  }
-
-  return grayscale;
-}
-
-/**
  * Save spectrogram textures as a single PNG image
  * Combines multiple textures horizontally
+ * Note: Textures already have colors applied by the GPU shader, so we save them directly
  */
 async function saveSpectrogramTextures(
   device: GPUDevice,
@@ -102,15 +83,14 @@ async function saveSpectrogramTextures(
     textureDataArray.push(data);
   }
 
-  // Combine textures into a single image
+  // Combine textures into a single RGBA image
   // Width = totalFrames, Height = numBins (not textureHeight, which may be padded)
   const combinedWidth = totalFrames;
   const combinedHeight = numBins;
-  const combinedGrayscale = new Uint8Array(combinedWidth * combinedHeight);
+  const combinedRGBA = new Uint8Array(combinedWidth * combinedHeight * 4);
 
   for (let textureIdx = 0; textureIdx < texturesToRead; textureIdx++) {
     const textureData = textureDataArray[textureIdx];
-    const textureGrayscale = rgbaToGrayscale(textureData, textureWidth, textureHeight);
 
     // Copy this texture's data to the combined image
     const startX = textureIdx * textureWidth;
@@ -118,21 +98,26 @@ async function saveSpectrogramTextures(
 
     for (let x = 0; x < framesToCopy; x++) {
       for (let y = 0; y < numBins; y++) {
-        const srcIdx = y * textureWidth + x;
-        const dstIdx = y * combinedWidth + (startX + x);
-        combinedGrayscale[dstIdx] = textureGrayscale[srcIdx];
+        // Source: texture layout is [y][x] with RGBA
+        const srcIdx = (y * textureWidth + x) * 4;
+
+        // Destination: flip vertically so low frequencies are at bottom
+        const flippedY = numBins - 1 - y;
+        const dstIdx = (flippedY * combinedWidth + (startX + x)) * 4;
+
+        // Copy RGBA values directly (colors already applied by GPU shader)
+        combinedRGBA[dstIdx + 0] = textureData[srcIdx + 0]; // R
+        combinedRGBA[dstIdx + 1] = textureData[srcIdx + 1]; // G
+        combinedRGBA[dstIdx + 2] = textureData[srcIdx + 2]; // B
+        combinedRGBA[dstIdx + 3] = 255; // A (force opaque)
       }
     }
   }
 
-  // Save using the existing saveCQTAsPNG function
-  // We need to convert grayscale back to Float32Array for compatibility
-  const float32Data = new Float32Array(combinedGrayscale.length);
-  for (let i = 0; i < combinedGrayscale.length; i++) {
-    float32Data[i] = combinedGrayscale[i] / 255.0; // Normalize to 0-1
-  }
-
-  await saveCQTAsPNG(float32Data, combinedWidth, combinedHeight, outputPath);
+  // Save directly as PNG (colors already applied, no need to use saveCQTAsPNG)
+  const { encode: encodePNG } = await import("https://deno.land/x/pngs@0.1.1/mod.ts");
+  const png = encodePNG(combinedRGBA, combinedWidth, combinedHeight);
+  await Deno.writeFile(outputPath, png);
 }
 
 Deno.test("Transformer - basic initialization", async () => {
@@ -531,14 +516,13 @@ Deno.test("Transformer - buffer to texture mapping sanity check", async () => {
   console.log(`Non-zero texture pixels: ${nonZeroTexture}/${textureWidth * textureHeight}`);
 
   // Convert magnitude to color using the same algorithm as the shader
-  // This is a simplified version for comparison
+  // Uses linear scaling with fixed range (matching updated shader)
   const magnitudeToIntensity = (magnitude: number): number => {
-    const epsilon = 0.0001;
-    const logMag = Math.log(magnitude + epsilon);
-    const minLog = Math.log(epsilon);
-    const maxLog = Math.log(10.0);
-    const normalized = Math.max(0, Math.min(1, (logMag - minLog) / (maxLog - minLog)));
-    return Math.pow(normalized, 0.5);
+    const minVal = 0.0;
+    const maxVal = 2.0;
+    const range = maxVal - minVal;
+    const normalized = Math.max(0, Math.min(1, (magnitude - minVal) / range));
+    return normalized;
   };
 
   const intensityToColor = (intensity: number): [number, number, number] => {
@@ -749,6 +733,231 @@ Deno.test("Transformer - complex frequency sweep", async () => {
   console.log(`Complex sweep spectrogram saved to ${outputPath}`);
 
   // Verify file
+  const fileInfo = await Deno.stat(outputPath);
+  assert(fileInfo.size > 0, "Output PNG file should not be empty");
+
+  // Cleanup
+  transformer.destroy();
+});
+
+Deno.test("Transformer - compare CQT buffer vs Spectrogram texture output", async () => {
+  const device = await getTestDevice();
+
+  // Use simple configuration for easy comparison
+  const sampleRate = 48000;
+  const blockSize = 4096;
+  const batchFactor = 8;
+
+  const duration = 1.0;
+  const audioData = generateSineSweep({
+    startFrequency: 100,
+    endFrequency: 1000,
+    sampleRate,
+    duration,
+    amplitude: 0.8,
+    sweepType: "logarithmic",
+  });
+
+  const numBlocks = Math.floor(audioData.length / blockSize);
+  const totalFrames = numBlocks * batchFactor;
+  const requiredMaxBlocks = Math.ceil(totalFrames / batchFactor);
+
+  const config: Partial<TransformerConfig> = {
+    sampleRate,
+    blockSize,
+    maxBlocks: Math.max(requiredMaxBlocks, 4),
+    fMin: 55,
+    fMax: 1760,
+    binsPerOctave: 12,
+    hopLength: blockSize / batchFactor,
+  };
+
+  const transformer = new Transformer(device, config);
+
+  console.log(`\n=== Comparison Test ===`);
+  console.log(`Will process ${numBlocks} blocks, generating ${totalFrames} frames`);
+
+  transformer.addSamples(audioData);
+
+  const waveletTransform = transformer.getWaveletTransform();
+  const numBins = waveletTransform.getNumBins();
+
+  console.log(`Number of bins: ${numBins}`);
+
+  // PART 1: Read CQT buffer directly
+  const outputBuffer = waveletTransform.getOutputBuffer();
+  const bufferSize = totalFrames * numBins * 4;
+  const readBuffer = device.createBuffer({
+    size: bufferSize,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+
+  const commandEncoder = device.createCommandEncoder();
+  commandEncoder.copyBufferToBuffer(outputBuffer, 0, readBuffer, 0, bufferSize);
+  device.queue.submit([commandEncoder.finish()]);
+
+  await readBuffer.mapAsync(GPUMapMode.READ);
+  const cqtData = new Float32Array(readBuffer.getMappedRange().slice(0));
+  readBuffer.unmap();
+  readBuffer.destroy();
+
+  console.log(`CQT buffer: ${totalFrames} frames x ${numBins} bins = ${cqtData.length} values`);
+
+  // Save CQT buffer output
+  const cqtOutputPath = "src/sampler/scope/tests/output/comparison_cqt_buffer.png";
+  try {
+    await Deno.mkdir("src/sampler/scope/tests/output", { recursive: true });
+  } catch {
+    // Directory might already exist
+  }
+  await saveCQTAsPNG(cqtData, totalFrames, numBins, cqtOutputPath);
+  console.log(`CQT buffer saved to ${cqtOutputPath}`);
+
+  // PART 2: Read spectrogram texture
+  const spectrogram = transformer.getSpectrogram();
+  const textures = spectrogram.getTextures();
+  const textureWidth = spectrogram.getTextureWidth();
+  const textureHeight = spectrogram.getTextureHeight();
+
+  console.log(`\nSpectrogram: ${textures.length} textures, ${textureWidth}x${textureHeight} each`);
+  console.log(`Write position: ${spectrogram.getWritePosition()}`);
+
+  // Read first texture to see what we have
+  const texture0Data = await readTexture(device, textures[0], textureWidth, textureHeight);
+
+  // Count non-zero pixels in first texture
+  let nonZeroPixels = 0;
+  for (let i = 0; i < textureWidth * textureHeight; i++) {
+    const idx = i * 4;
+    if (texture0Data[idx] > 0 || texture0Data[idx + 1] > 0 || texture0Data[idx + 2] > 0) {
+      nonZeroPixels++;
+    }
+  }
+  console.log(`Non-zero pixels in texture 0: ${nonZeroPixels}/${textureWidth * textureHeight}`);
+
+  // Save spectrogram texture output
+  const spectrogramOutputPath = "src/sampler/scope/tests/output/comparison_spectrogram_texture.png";
+  await saveSpectrogramTextures(
+    device,
+    textures,
+    textureWidth,
+    textureHeight,
+    numBins,
+    totalFrames,
+    spectrogramOutputPath
+  );
+  console.log(`Spectrogram texture saved to ${spectrogramOutputPath}`);
+
+  console.log(`\n✓ Compare the two images - they should show the same data!`);
+  console.log(`  CQT buffer:          ${cqtOutputPath}`);
+  console.log(`  Spectrogram texture: ${spectrogramOutputPath}`);
+
+  // Cleanup
+  transformer.destroy();
+});
+
+Deno.test("Transformer - CQT buffer direct output (matching buffer-comparison)", async () => {
+  const device = await getTestDevice();
+
+  // Use EXACT same configuration as buffer-comparison test
+  const sampleRate = 48000;
+  const blockSize = 4096;
+  const batchFactor = 8; // 8 time frames per block
+
+  // Generate EXACT same sine sweep as buffer-comparison test
+  const duration = 1.0; // seconds
+  const audioData = generateSineSweep({
+    startFrequency: 100,
+    endFrequency: 1000,
+    sampleRate,
+    duration,
+    amplitude: 0.8,
+    sweepType: "logarithmic",
+  });
+
+  // Calculate required maxBlocks to hold all frames (same as buffer-comparison test)
+  const numBlocks = Math.floor(audioData.length / blockSize);
+  const totalFrames = numBlocks * batchFactor;
+  const requiredMaxBlocks = Math.ceil(totalFrames / batchFactor);
+
+  console.log(`Will process ${numBlocks} blocks, generating ${totalFrames} frames`);
+  console.log(`Required maxBlocks: ${requiredMaxBlocks}`);
+
+  const config: Partial<TransformerConfig> = {
+    sampleRate,
+    blockSize,
+    maxBlocks: Math.max(requiredMaxBlocks, 4), // Ensure we can hold all frames
+    fMin: 55, // A1
+    fMax: 1760, // A6
+    binsPerOctave: 12,
+    hopLength: blockSize / batchFactor,
+  };
+
+  const transformer = new Transformer(device, config);
+
+  // Process the audio
+  console.log(`Processing ${audioData.length} samples`);
+  transformer.addSamples(audioData);
+
+  // Debug: Check accumulator state and internal transformer state
+  const accumulator = transformer.getAccumulator();
+  const accWriteOffset = accumulator.getOutputBufferWriteOffset();
+  console.log(`Accumulator write offset: ${accWriteOffset} samples`);
+
+  // Access private fields for debugging (we know the structure from reading the code)
+  const transformerConfig = transformer.getConfig();
+  console.log(`Transformer config:`, transformerConfig);
+
+  // Read the CQT buffer directly (same as buffer-comparison test)
+  // Note: mapAsync will implicitly wait for GPU operations to complete
+  const waveletTransform = transformer.getWaveletTransform();
+  const outputBuffer = waveletTransform.getOutputBuffer();
+  const numBins = waveletTransform.getNumBins();
+
+  // Calculate how many frames were generated (should match our calculations above)
+  const framesWritten = totalFrames;
+
+  console.log(`Generated ${framesWritten} frames across ${numBlocks} blocks`);
+  console.log(`Number of bins: ${numBins}`);
+
+  // Read the CQT buffer data
+  const bufferSize = framesWritten * numBins * 4;
+  const readBuffer = device.createBuffer({
+    size: bufferSize,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+
+  const commandEncoder = device.createCommandEncoder();
+  commandEncoder.copyBufferToBuffer(outputBuffer, 0, readBuffer, 0, bufferSize);
+  device.queue.submit([commandEncoder.finish()]);
+
+  await readBuffer.mapAsync(GPUMapMode.READ);
+  const cqtData = new Float32Array(readBuffer.getMappedRange().slice(0));
+  readBuffer.unmap();
+  readBuffer.destroy();
+
+  // Verify we have data
+  let nonZeroCount = 0;
+  for (let i = 0; i < cqtData.length; i++) {
+    if (Math.abs(cqtData[i]) > 0.0001) nonZeroCount++;
+  }
+  console.log(`Non-zero values: ${nonZeroCount}/${cqtData.length}`);
+  assert(nonZeroCount > 0, "CQT buffer should contain non-zero data");
+
+  // Save using saveCQTAsPNG (same as buffer-comparison test)
+  const outputPath = "src/sampler/scope/tests/output/transformer_cqt_direct.png";
+
+  try {
+    await Deno.mkdir("src/sampler/scope/tests/output", { recursive: true });
+  } catch {
+    // Directory might already exist
+  }
+
+  await saveCQTAsPNG(cqtData, framesWritten, numBins, outputPath);
+  console.log(`CQT buffer output saved to ${outputPath}`);
+  console.log(`This should match comparison_transformer.png from buffer-comparison test`);
+
+  // Verify file was created
   const fileInfo = await Deno.stat(outputPath);
   assert(fileInfo.size > 0, "Output PNG file should not be empty");
 

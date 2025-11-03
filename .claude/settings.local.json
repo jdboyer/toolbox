@@ -38,7 +38,13 @@
       "Bash(deno test --parallel=1 src/sampler/scope/tests/ --allow-read --allow-write)",
       "Bash(deno test --jobs=1 src/sampler/scope/tests/ --allow-read --allow-write)",
       "Bash(deno test src/sampler/scope/tests/ --parallel=16 --allow-read --allow-write)",
-      "Bash(deno test src/sampler/scope/tests/ --parallel --allow-read --allow-write)"
+      "Bash(deno test src/sampler/scope/tests/ --parallel --allow-read --allow-write)",
+      "Bash(deno test \"src/sampler/scope/tests/transformer.test.ts::Transformer - CQT buffer direct output (matching buffer-comparison)\" --allow-read --allow-write)",
+      "Bash(deno test --filter \"CQT buffer direct output\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
+      "Bash(powershell -Command \"(Get-FileHash comparison_transformer.png -Algorithm MD5).Hash; (Get-FileHash transformer_cqt_direct.png -Algorithm MD5).Hash\")",
+      "Bash(deno test src/sampler/scope/tests/ --allow-read --allow-write --parallel)",
+      "Bash(deno test src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write --parallel)",
+      "Bash(deno test --filter \"compare CQT buffer vs Spectrogram\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write --parallel)"
     ],
     "deny": [],
     "ask": []
