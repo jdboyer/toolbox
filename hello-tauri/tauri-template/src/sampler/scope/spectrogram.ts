@@ -52,7 +52,8 @@ export class Spectrogram {
   private configured: boolean = false;
 
   // Ring buffer state
-  private writePosition: number = 0; // Current write position (texture index)
+  private writePosition: number = 0; // Current write position in total frames
+
 
   /**
    * Create a Spectrogram instance
@@ -293,10 +294,11 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
       const currentInputFrame = (startFrame + framesProcessed) % this.inputMaxFrames;
       const framesRemaining = numFrames - framesProcessed;
 
-      // Calculate how many frames fit in current texture
-      const currentTextureIndex = this.writePosition % this.config.textureCount;
+      // Calculate which texture and position within texture to write to
+      const absoluteWritePos = (this.writePosition + framesProcessed) % this.getTotalCapacity();
+      const currentTextureIndex = Math.floor(absoluteWritePos / this.textureWidth) % this.config.textureCount;
       const currentTexture = this.textures[currentTextureIndex];
-      const textureStartX = Math.floor(framesProcessed / this.textureWidth) * this.textureWidth % this.textureWidth;
+      const textureStartX = absoluteWritePos % this.textureWidth;
       const framesToCopy = Math.min(
         framesRemaining,
         this.textureWidth - textureStartX
@@ -352,12 +354,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
       // Update state
       framesProcessed += framesToCopy;
-
-      // Move to next texture if we filled this one
-      if (textureStartX + framesToCopy >= this.textureWidth) {
-        this.writePosition = (this.writePosition + 1) % this.config.textureCount;
-      }
     }
+
+    // Update write position by the total number of frames written
+    this.writePosition = (this.writePosition + numFrames) % this.getTotalCapacity();
   }
 
   /**
@@ -382,7 +382,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
    * Get the current write position (texture index)
    */
   getWritePosition(): number {
-    return this.writePosition;
+    return Math.floor(this.writePosition / this.textureWidth) % this.config.textureCount;
   }
 
   /**

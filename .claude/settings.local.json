@@ -17,7 +17,10 @@
       "Bash(deno test src/sampler/scope/tests/ --allow-read)",
       "Bash(deno lint src/sampler/scope/tests/accumulator.test.ts)",
       "Bash(deno test src/sampler/scope/tests/ --allow-read --allow-write)",
-      "Bash(deno test src/sampler/scope/tests/spectrogram.test.ts --allow-read --allow-write)"
+      "Bash(deno test src/sampler/scope/tests/spectrogram.test.ts --allow-read --allow-write)",
+      "Bash(deno test src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
+      "Bash(deno test src/sampler/scope/tests/transformer.test.ts::sanity --allow-read --allow-write)",
+      "Bash(deno test --filter \"sanity\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)"
     ],
     "deny": [],
     "ask": []
