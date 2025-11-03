@@ -2,17 +2,12 @@
  * Common test helpers for WebGPU-based audio processing tests
  */
 
-let cachedDevice: GPUDevice | null = null;
-
 /**
- * Get or create a WebGPU device for testing
- * Caches the device to avoid repeated initialization
+ * Get a fresh WebGPU device for testing
+ * Creates a NEW device for each call to prevent resource exhaustion and device loss issues
+ * Tests should call this once and reuse the device within that test, then let it be garbage collected
  */
 export async function getTestDevice(): Promise<GPUDevice> {
-  if (cachedDevice) {
-    return cachedDevice;
-  }
-
   const adapter = await navigator.gpu?.requestAdapter();
   if (!adapter) {
     throw new Error("WebGPU not supported - cannot get GPU adapter");
@@ -23,7 +18,6 @@ export async function getTestDevice(): Promise<GPUDevice> {
     throw new Error("Failed to create WebGPU device");
   }
 
-  cachedDevice = device;
   return device;
 }
 
@@ -133,13 +127,3 @@ export function assertFloat32ArraysEqual(
   }
 }
 
-/**
- * Cleanup cached test resources
- * Call this in test cleanup if needed
- */
-export function cleanupTestDevice(): void {
-  if (cachedDevice) {
-    cachedDevice.destroy();
-    cachedDevice = null;
-  }
-}

@@ -23,7 +23,22 @@
       "Bash(deno test --filter \"sanity\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
       "Bash(deno test src/sampler/scope/tests/buffer-comparison.test.ts --allow-read --allow-write)",
       "Bash(deno test src/sampler/scope/tests/wavelet-transform.test.ts --allow-read --allow-write)",
-      "Bash(deno test src/sampler/scope/tests/accumulator.test.ts --allow-read --allow-write)"
+      "Bash(deno test src/sampler/scope/tests/accumulator.test.ts --allow-read --allow-write)",
+      "Bash(deno test src/sampler/scope/tests/wavelet-transform.test.ts src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
+      "Bash(deno test src/sampler/scope/tests/transformer.test.ts src/sampler/scope/tests/wavelet-transform.test.ts --allow-read --allow-write)",
+      "Bash(deno test src/sampler/scope/tests/ --allow-read --allow-write --jobs=1)",
+      "Bash(timeout 120 deno test src/sampler/scope/tests/ --allow-read --allow-write --jobs=1)",
+      "Bash(deno test --help)",
+      "Bash(DENO_JOBS=1 deno test src/sampler/scope/tests/ --allow-read --allow-write)",
+      "Bash(set DENO_JOBS=1)",
+      "Bash(deno test src/sampler/scope/tests/wavelet-transform.test.ts --allow-read --allow-write --parallel=false)",
+      "Bash(cmd /C \"set DENO_JOBS=1 && deno test src/sampler/scope/tests/ --allow-read --allow-write\")",
+      "Bash(powershell -Command \"$env:DENO_JOBS=''''1''''; deno test src/sampler/scope/tests/ --allow-read --allow-write\")",
+      "Bash(timeout 180 deno test src/sampler/scope/tests/ --allow-read --allow-write)",
+      "Bash(deno test --parallel=1 src/sampler/scope/tests/ --allow-read --allow-write)",
+      "Bash(deno test --jobs=1 src/sampler/scope/tests/ --allow-read --allow-write)",
+      "Bash(deno test src/sampler/scope/tests/ --parallel=16 --allow-read --allow-write)",
+      "Bash(deno test src/sampler/scope/tests/ --parallel --allow-read --allow-write)"
     ],
     "deny": [],
     "ask": []
