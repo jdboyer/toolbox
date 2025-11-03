@@ -16,6 +16,8 @@ export function ScopeView({ canvasWidth, canvasHeight = 400, timeRange, timeOffs
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    let animationFrameId: number | null = null;
+
     const initRenderer = async () => {
       // Get the analyzer instance
       const analyzer = await AnalyzerService.getAnalyzer();
@@ -24,40 +26,35 @@ export function ScopeView({ canvasWidth, canvasHeight = 400, timeRange, timeOffs
         return;
       }
 
-      // Initialize the analyzer with the canvas
-      const initialized = await analyzer.initialize(canvas);
+      // Initialize the scope renderer with the canvas
+      const initialized = analyzer.initializeScopeRenderer(canvas);
 
       if (initialized) {
-        analyzer.startRendering();
+        const renderer = analyzer.getScopeRenderer();
+        if (renderer) {
+          // Start continuous rendering
+          const render = () => {
+            renderer.render();
+            animationFrameId = requestAnimationFrame(render);
+          };
+          render();
+        }
       } else {
-        console.error("Failed to initialize SimpleAnalyzer");
+        console.error("Failed to initialize ScopeRenderer");
       }
     };
 
     initRenderer().catch(console.error);
 
-    // Cleanup - the renderer is owned by the analyzer and will be cleaned up when it's destroyed
+    // Cleanup
     return () => {
-      // We don't destroy the renderer here since it's owned by the analyzer
-      // The analyzer service manages the lifecycle
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+      }
     };
   }, [canvasWidth, canvasHeight]);
 
-  // Update renderer with time axis parameters when they change
-  useEffect(() => {
-    const updateTimeAxis = async () => {
-      const analyzer = await AnalyzerService.getAnalyzer();
-      if (!analyzer) return;
-
-      const renderer = analyzer.getScopeRenderer();
-      if (renderer) {
-        const actualSampleCount = analyzer.getActualSampleCount();
-        renderer.setTimeAxis(timeRange, timeOffset, sampleRate, actualSampleCount);
-      }
-    };
-
-    updateTimeAxis();
-  }, [timeRange, timeOffset, sampleRate]);
+  // TODO: Add zoom/pan controls using timeRange, timeOffset, sampleRate
 
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>

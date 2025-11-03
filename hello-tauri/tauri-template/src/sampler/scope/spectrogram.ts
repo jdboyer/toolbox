@@ -37,9 +37,10 @@ export class Spectrogram {
   private config: SpectrogramConfig;
 
   // Texture properties
-  private textures: GPUTexture[] = [];
+  private textures: GPUTexture[] = []; // Legacy: keep for compatibility with tests
+  private textureArray: GPUTexture | null = null; // Large 2D texture containing all frames
   private textureHeight: number; // Rounded up numBins (power of 2)
-  private textureWidth: number; // framesPerTexture
+  private textureWidth: number; // Total width (framesPerTexture * textureCount)
 
   // Input buffer (configured externally)
   private inputBuffer: GPUBuffer | null = null;
@@ -52,7 +53,8 @@ export class Spectrogram {
   private configured: boolean = false;
 
   // Ring buffer state
-  private writePosition: number = 0; // Current write position in total frames
+  private writePosition: number = 0; // Current write position in total frames (wraps around)
+  private totalFramesWritten: number = 0; // Total frames written (does not wrap)
 
 
   /**
@@ -70,42 +72,45 @@ export class Spectrogram {
       numBins: config.numBins ?? 128,
     };
 
-    // Validate framesPerTexture is power of 2
-    if ((this.config.framesPerTexture & (this.config.framesPerTexture - 1)) !== 0) {
-      throw new Error(
-        `framesPerTexture must be a power of 2, got ${this.config.framesPerTexture}`
-      );
-    }
-
-    // Calculate texture dimensions
-    this.textureWidth = this.config.framesPerTexture;
+    // For backward compatibility with tests that don't call configure(),
+    // set a default texture width based on the old formula
+    // This will be overridden in configure() to match the actual input buffer
+    this.textureWidth = this.config.framesPerTexture * this.config.textureCount;
     this.textureHeight = nextPowerOf2(this.config.numBins);
 
-    // Create texture array
+    // Create default texture (will be recreated in configure() if size changes)
     this.createTextures();
 
-    // Initialize WebGPU resources
+    // Initialize WebGPU resources (shaders, pipelines)
     this.initializeWebGPU();
   }
 
   /**
-   * Create the texture array ring buffer
+   * Create one large 2D texture
    */
   private createTextures(): void {
+    console.log(`Spectrogram: Creating texture ${this.textureWidth}x${this.textureHeight} (${this.config.textureCount} textures of ${this.config.framesPerTexture} frames each)`);
+
+    // Create a single large 2D texture
+    this.textureArray = this.device.createTexture({
+      size: {
+        width: this.textureWidth,
+        height: this.textureHeight,
+        depthOrArrayLayers: 1,
+      },
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+    });
+
+    // Legacy: populate textures array for backward compatibility with tests
+    // Create sub-views that represent the old "ring buffer texture" layout
+    const framesPerTexture = this.config.framesPerTexture;
     this.textures = [];
-
     for (let i = 0; i < this.config.textureCount; i++) {
-      const texture = this.device.createTexture({
-        size: {
-          width: this.textureWidth,
-          height: this.textureHeight,
-          depthOrArrayLayers: 1,
-        },
-        format: "rgba8unorm", // RGBA format for color, filterable and antialiasable
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
-      });
-
-      this.textures.push(texture);
+      // Each "texture" is actually a view into a horizontal slice of the big texture
+      // Note: WebGPU doesn't support arbitrary rectangular views, so we just store the main texture
+      // Tests will need to account for the horizontal offset when reading
+      this.textures.push(this.textureArray);
     }
   }
 
@@ -227,7 +232,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let color = magnitudeToColor(magnitude, minVal, maxVal);
 
   // Calculate output texture position
-  let outputX = (params.outputStartX + texX) % params.textureWidth;
+  let outputX = params.outputStartX + texX;
   let outputY = texY;
 
   // Write color to output texture
@@ -250,6 +255,18 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     if (!this.pipeline || !this.bindGroupLayout) {
       throw new Error("Spectrogram not properly initialized");
     }
+
+    // Set texture width to match input buffer size
+    this.textureWidth = maxFrames;
+    this.textureHeight = nextPowerOf2(numBins);
+
+    console.log(`Spectrogram.configure: Creating texture with width=${this.textureWidth} to match input maxFrames=${maxFrames}`);
+
+    // Create or recreate texture with correct dimensions
+    if (this.textureArray) {
+      this.textureArray.destroy();
+    }
+    this.createTextures();
 
     this.inputBuffer = inputBuffer;
     this.inputNumBins = numBins;
@@ -291,15 +308,18 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
       const currentInputFrame = (startFrame + framesProcessed) % this.inputMaxFrames;
       const framesRemaining = numFrames - framesProcessed;
 
-      // Calculate which texture and position within texture to write to
+      // Calculate X position in the large texture
       const absoluteWritePos = (this.writePosition + framesProcessed) % this.getTotalCapacity();
-      const currentTextureIndex = Math.floor(absoluteWritePos / this.textureWidth) % this.config.textureCount;
-      const currentTexture = this.textures[currentTextureIndex];
-      const textureStartX = absoluteWritePos % this.textureWidth;
+      const textureStartX = absoluteWritePos;
       const framesToCopy = Math.min(
         framesRemaining,
         this.textureWidth - textureStartX
       );
+
+      // Log first few writes
+      if (this.totalFramesWritten < 100) {
+        console.log(`Spectrogram.updateTextures: writing ${framesToCopy} frames to X=${textureStartX}, totalWritten=${this.totalFramesWritten}, writePosition=${this.writePosition}`);
+      }
 
       // Create parameters buffer
       const paramsData = new Uint32Array([
@@ -324,7 +344,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
         layout: this.bindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: this.inputBuffer } },
-          { binding: 1, resource: currentTexture.createView() },
+          { binding: 1, resource: this.textureArray!.createView() },
           { binding: 2, resource: { buffer: paramsBuffer } },
         ],
       });
@@ -355,6 +375,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     // Update write position by the total number of frames written
     this.writePosition = (this.writePosition + numFrames) % this.getTotalCapacity();
+    this.totalFramesWritten += numFrames;
   }
 
   /**
@@ -369,21 +390,45 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   }
 
   /**
-   * Get all textures in the ring buffer
+   * Get all textures in the ring buffer (legacy compatibility)
    */
   getTextures(): GPUTexture[] {
     return this.textures;
   }
 
   /**
-   * Get the current write position (texture index)
+   * Get the texture array (preferred method for rendering with texture_2d_array)
    */
-  getWritePosition(): number {
-    return Math.floor(this.writePosition / this.textureWidth) % this.config.textureCount;
+  getTextureArray(): GPUTexture {
+    if (!this.textureArray) {
+      throw new Error("Texture array not initialized");
+    }
+    return this.textureArray;
   }
 
   /**
-   * Get texture width (frames per texture)
+   * Get the current write position (texture index)
+   */
+  getWritePosition(): number {
+    return Math.floor(this.writePosition / this.config.framesPerTexture) % this.config.textureCount;
+  }
+
+  /**
+   * Get the current write position in frames (0 to totalCapacity-1)
+   */
+  getWritePositionInFrames(): number {
+    return this.writePosition;
+  }
+
+  /**
+   * Get the number of frames written so far (clamped to capacity, not wrapped)
+   */
+  getFramesWritten(): number {
+    return Math.min(this.totalFramesWritten, this.getTotalCapacity());
+  }
+
+  /**
+   * Get texture width (actual texture width in pixels)
    */
   getTextureWidth(): number {
     return this.textureWidth;
@@ -405,9 +450,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   /**
    * Get the total capacity in frames (textureCount * framesPerTexture)
+   * Note: textureWidth is already the full width (textureCount * framesPerTexture)
    */
   getTotalCapacity(): number {
-    return this.config.textureCount * this.textureWidth;
+    return this.textureWidth;
   }
 
   /**
@@ -415,14 +461,41 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
    */
   reset(): void {
     this.writePosition = 0;
+    this.totalFramesWritten = 0;
+
+    // Clear the texture to black by writing zeros
+    if (this.textureArray) {
+      // Create a buffer full of zeros
+      const bytesPerPixel = 4; // RGBA8
+      const bufferSize = this.textureWidth * this.textureHeight * bytesPerPixel;
+      const zeroData = new Uint8Array(bufferSize);
+
+      // Write zeros to texture via a staging buffer
+      const commandEncoder = this.device.createCommandEncoder();
+
+      // We need to use writeTexture, but it requires proper alignment
+      // For simplicity, just write black rows
+      const bytesPerRow = Math.ceil((this.textureWidth * bytesPerPixel) / 256) * 256;
+      const alignedData = new Uint8Array(bytesPerRow * this.textureHeight);
+
+      this.device.queue.writeTexture(
+        { texture: this.textureArray },
+        alignedData,
+        { bytesPerRow, rowsPerImage: this.textureHeight },
+        { width: this.textureWidth, height: this.textureHeight }
+      );
+
+      console.log("Spectrogram: Texture cleared on reset");
+    }
   }
 
   /**
    * Cleanup and destroy WebGPU resources
    */
   destroy(): void {
-    for (const texture of this.textures) {
-      texture.destroy();
+    if (this.textureArray) {
+      this.textureArray.destroy();
+      this.textureArray = null;
     }
     this.textures = [];
     this.configured = false;

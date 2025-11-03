@@ -137,11 +137,12 @@ export class Analyzer {
    * Initialize the scope renderer with a canvas
    * @param canvas The canvas element to render to
    */
-  async initializeScopeRenderer(canvas: HTMLCanvasElement): Promise<boolean> {
+  initializeScopeRenderer(canvas: HTMLCanvasElement): boolean {
     if (!this.scopeRenderer) {
-      this.scopeRenderer = new ScopeRenderer(this.device, this);
+      const spectrogram = this.transformer.getSpectrogram();
+      this.scopeRenderer = new ScopeRenderer(this.device, spectrogram);
     }
-    return await this.scopeRenderer.initialize(canvas);
+    return this.scopeRenderer.initialize(canvas);
   }
 
   /**
@@ -156,8 +157,8 @@ export class Analyzer {
    * Clears accumulator and transformer buffers/indices
    */
   reset(): void {
-    //this.accumulator.reset();
-    //this.transformer.reset();
+    this.transformer.reset();
+    console.log("Analyzer: reset complete");
   }
 
   /**

@@ -200,6 +200,11 @@ export class Transformer {
 
       // Increment blocks processed counter
       this.blocksProcessed++;
+
+      // Logging disabled
+      // if (this.blocksProcessed % 10 === 0) {
+      //   console.log(`Transformer: processed ${this.blocksProcessed} blocks, frames: ${this.lastSpectrogramFrame}/${this.waveletTransform.getMaxTimeFrames()}`);
+      // }
     }
   }
 
