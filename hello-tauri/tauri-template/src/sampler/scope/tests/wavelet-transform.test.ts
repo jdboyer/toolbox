@@ -52,18 +52,16 @@ Deno.test("WaveletTransform - basic CQT with sine sweep", async () => {
   waveletTransform.configure(inputBuffer, numSamples);
 
   // Process multiple blocks to generate CQT data
-  const hopLength = waveletTransform.getHopLength();
   const numFramesPerBlock = batchFactor;
-  const totalFramesToCompute = numFramesPerBlock * 3; // Process 3 blocks worth
+  let framesWritten = 0;
 
-  let outputOffset = 0;
   for (let block = 0; block < 3; block++) {
     const inputOffset = block * blockSize;
 
     // Check if we have enough input samples
     if (inputOffset + blockSize <= numSamples) {
-      waveletTransform.transform(inputOffset, outputOffset, numFramesPerBlock);
-      outputOffset += numFramesPerBlock;
+      waveletTransform.transform(inputOffset);
+      framesWritten += numFramesPerBlock;
     }
   }
 
@@ -77,7 +75,7 @@ Deno.test("WaveletTransform - basic CQT with sine sweep", async () => {
     device,
     outputBuffer,
     0,
-    outputOffset * numBins * 4
+    framesWritten * numBins * 4
   );
 
   // Verify output is not empty
@@ -94,7 +92,7 @@ Deno.test("WaveletTransform - basic CQT with sine sweep", async () => {
     // Directory might already exist
   }
 
-  await saveCQTAsPNG(outputData, outputOffset, numBins, outputPath);
+  await saveCQTAsPNG(outputData, framesWritten, numBins, outputPath);
   console.log(`CQT output saved to ${outputPath}`);
 
   // Verify file was created and has non-zero size
@@ -149,13 +147,13 @@ Deno.test("WaveletTransform - multi-tone signal", async () => {
 
   // Process 2 blocks
   const numFramesPerBlock = batchFactor;
-  let outputOffset = 0;
+  let framesWritten = 0;
 
   for (let block = 0; block < 2; block++) {
     const inputOffset = block * blockSize;
     if (inputOffset + blockSize <= numSamples) {
-      waveletTransform.transform(inputOffset, outputOffset, numFramesPerBlock);
-      outputOffset += numFramesPerBlock;
+      waveletTransform.transform(inputOffset);
+      framesWritten += numFramesPerBlock;
     }
   }
 
@@ -167,7 +165,7 @@ Deno.test("WaveletTransform - multi-tone signal", async () => {
     device,
     outputBuffer,
     0,
-    outputOffset * numBins * 4
+    framesWritten * numBins * 4
   );
 
   // Verify output has data
@@ -183,7 +181,7 @@ Deno.test("WaveletTransform - multi-tone signal", async () => {
     // Directory might already exist
   }
 
-  await saveCQTAsPNG(outputData, outputOffset, numBins, outputPath);
+  await saveCQTAsPNG(outputData, framesWritten, numBins, outputPath);
   console.log(`CQT output saved to ${outputPath}`);
 
   // Verify file was created

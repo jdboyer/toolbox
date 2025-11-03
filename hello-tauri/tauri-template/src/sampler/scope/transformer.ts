@@ -56,7 +56,6 @@ export class Transformer {
 
   // CQT parameters
   private minWindowSize: number; // Minimum samples needed for CQT
-  private cqtOutputOffset: number = 0; // Current write position in time frames
 
   /**
    * Create a Transformer instance
@@ -160,27 +159,11 @@ export class Transformer {
     // Calculate the input offset (use the most recent data)
     const inputOffset = Math.max(0, this.accumulator.getOutputBufferWriteOffset() - this.minWindowSize);
 
-    // Calculate how many time frames we can compute from one block
-    // This equals batchFactor (blockSize / hopLength)
-    const numFrames = this.waveletTransform.getBatchFactor();
-
-    // Check if we need to wrap the output buffer
-    const maxTimeFrames = this.waveletTransform.getMaxTimeFrames();
-    if (this.cqtOutputOffset + numFrames > maxTimeFrames) {
-      this.cqtOutputOffset = 0; // Wrap around (ring buffer behavior)
-    }
-
     // Only process if we have enough samples
     if (this.accumulator.getOutputBufferWriteOffset() >= this.minWindowSize) {
       // Perform CQT transform (buffers already configured in constructor)
-      this.waveletTransform.transform(
-        inputOffset,
-        this.cqtOutputOffset,
-        numFrames
-      );
-
-      // Advance output offset
-      this.cqtOutputOffset += numFrames;
+      // WaveletTransform now manages its own write position and always generates blockSize/batchFactor frames
+      this.waveletTransform.transform(inputOffset);
     }
   }
 
@@ -190,7 +173,6 @@ export class Transformer {
   reset(): void {
     this.accumulator.reset();
     this.waveletTransform.reset();
-    this.cqtOutputOffset = 0;
   }
 
   /**
@@ -228,13 +210,6 @@ export class Transformer {
    */
   getCQTOutputBuffer(): GPUBuffer {
     return this.waveletTransform.getOutputBuffer();
-  }
-
-  /**
-   * Get the current write offset in the CQT output buffer (in time frames)
-   */
-  getCQTOutputOffset(): number {
-    return this.cqtOutputOffset;
   }
 
   /**

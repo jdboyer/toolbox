@@ -59,6 +59,7 @@ export class WaveletTransform {
   // Output buffer (owned by WaveletTransform)
   private outputBuffer: GPUBuffer | null = null;
   private maxTimeFrames: number = 0; // Total time frames that can be stored
+  private writePosition: number = 0; // Current write position in time frames
 
   /**
    * Create a WaveletTransform instance
@@ -388,14 +389,8 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
    * Perform CQT transform on configured buffers
    * configure() must be called first
    * @param inputOffset Offset into input buffer (in samples)
-   * @param outputOffset Offset into output buffer (in time frames)
-   * @param numFrames Number of time frames to compute
    */
-  transform(
-    inputOffset: number,
-    outputOffset: number,
-    numFrames: number
-  ): void {
+  transform(inputOffset: number): void {
     if (!this.configured || !this.bindGroup || !this.paramsBuffer) {
       throw new Error("WaveletTransform not configured. Call configure() first.");
     }
@@ -404,10 +399,13 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
       throw new Error("WaveletTransform pipeline not initialized");
     }
 
+    // Always generate exactly batchFactor frames per block
+    const numFrames = this.config.batchFactor;
+
     // Update parameters buffer with new offsets
     const params = new Uint32Array([
       inputOffset,
-      outputOffset,
+      this.writePosition,
       this.numBins,
       this.maxKernelLength,
       this.hopLength,
@@ -434,6 +432,9 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     // Submit commands
     this.device.queue.submit([commandEncoder.finish()]);
+
+    // Update write position (wrap around at max)
+    this.writePosition = (this.writePosition + numFrames) % this.maxTimeFrames;
   }
 
   /**
@@ -499,7 +500,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
    * Reset the wavelet transform to initial state
    */
   reset(): void {
-    // No state to reset - kernels are immutable
+    this.writePosition = 0;
   }
 
   /**
