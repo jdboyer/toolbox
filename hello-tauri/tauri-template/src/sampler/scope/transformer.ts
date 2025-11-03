@@ -61,6 +61,7 @@ export class Transformer {
 
   // Tracking for spectrogram updates
   private lastSpectrogramFrame: number = 0; // Last frame written to spectrogram
+  private blocksProcessed: number = 0; // Track how many blocks have been processed
 
   /**
    * Create a Transformer instance
@@ -176,8 +177,9 @@ export class Transformer {
    * and is ready for processing
    */
   processTransform(): void {
-    // Calculate the input offset (use the most recent data)
-    const inputOffset = Math.max(0, this.accumulator.getOutputBufferWriteOffset() - this.minWindowSize);
+    // Calculate the input offset for THIS specific block
+    // Each block starts at: blocksProcessed * blockSize
+    const inputOffset = this.blocksProcessed * this.config.blockSize;
 
     // Only process if we have enough samples
     if (this.accumulator.getOutputBufferWriteOffset() >= this.minWindowSize) {
@@ -195,6 +197,9 @@ export class Transformer {
 
       // Update tracking (wrap around at max)
       this.lastSpectrogramFrame = currentFrame % this.waveletTransform.getMaxTimeFrames();
+
+      // Increment blocks processed counter
+      this.blocksProcessed++;
     }
   }
 
@@ -206,6 +211,7 @@ export class Transformer {
     this.waveletTransform.reset();
     this.spectrogram.reset();
     this.lastSpectrogramFrame = 0;
+    this.blocksProcessed = 0;
   }
 
   /**
