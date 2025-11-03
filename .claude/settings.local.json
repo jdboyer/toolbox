@@ -22,7 +22,8 @@
       "Bash(deno test src/sampler/scope/tests/transformer.test.ts::sanity --allow-read --allow-write)",
       "Bash(deno test --filter \"sanity\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
       "Bash(deno test src/sampler/scope/tests/buffer-comparison.test.ts --allow-read --allow-write)",
-      "Bash(deno test src/sampler/scope/tests/wavelet-transform.test.ts --allow-read --allow-write)"
+      "Bash(deno test src/sampler/scope/tests/wavelet-transform.test.ts --allow-read --allow-write)",
+      "Bash(deno test src/sampler/scope/tests/accumulator.test.ts --allow-read --allow-write)"
     ],
     "deny": [],
     "ask": []
