@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import AnalyzerService from "./analyzer-service";
 
 interface ScopeViewProps {
@@ -12,6 +12,29 @@ interface ScopeViewProps {
 export function ScopeView({ canvasWidth, canvasHeight = 400, timeRange, timeOffset, sampleRate }: ScopeViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const analyzerRef = useRef<any>(null);
+  const [renderedWidth, setRenderedWidth] = useState<number>(canvasWidth);
+
+  // Track the actual rendered canvas width (after CSS scaling)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const updateRenderedWidth = () => {
+      const rect = canvas.getBoundingClientRect();
+      setRenderedWidth(rect.width);
+    };
+
+    // Initial measurement
+    updateRenderedWidth();
+
+    // Track resize
+    const resizeObserver = new ResizeObserver(updateRenderedWidth);
+    resizeObserver.observe(canvas);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
 
   // Initialize renderer once
   useEffect(() => {
@@ -83,10 +106,24 @@ export function ScopeView({ canvasWidth, canvasHeight = 400, timeRange, timeOffs
       const totalDurationMs = textureWidth * msPerFrame;
 
       // Calculate UV scale and offset
-      // uvScale.x: What fraction of the texture to display (0-1+)
-      //   - If timeRange < totalDuration, we zoom IN (show less of texture, smaller scale)
-      //   - If timeRange > totalDuration, we zoom OUT (show more of texture, larger scale)
-      const uvScaleX = timeRange / totalDurationMs;
+      // The timeRange determines how much time is displayed across the rendered canvas width
+      //
+      // In TimeDomainView:
+      //   - Fixed canvas of 1400px shows timeRange ms
+      //   - Pixel density: 1400 / timeRange (pixels per ms)
+      //
+      // In ScopeView:
+      //   - Rendered canvas of renderedWidth shows some portion of texture
+      //   - Texture has textureWidth frames representing totalDurationMs
+      //   - We want the same pixel density as TimeDomainView
+      //
+      // To match pixel densities:
+      //   renderedWidth / displayedTime = 1400 / timeRange
+      //   displayedTime = (renderedWidth * timeRange) / 1400
+      //
+      // uvScale = displayedTime / totalDurationMs
+      const displayedTimeMs = (renderedWidth * timeRange) / 1400;
+      const uvScaleX = displayedTimeMs / totalDurationMs;
 
       // uvOffset.x: Which part of the texture to start from (normalized 0-1)
       const uvOffsetX = timeOffset / totalDurationMs;
@@ -102,7 +139,7 @@ export function ScopeView({ canvasWidth, canvasHeight = 400, timeRange, timeOffs
     };
 
     updateUVTransform().catch(console.error);
-  }, [timeRange, timeOffset, sampleRate]);
+  }, [timeRange, timeOffset, sampleRate, renderedWidth]);
 
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
