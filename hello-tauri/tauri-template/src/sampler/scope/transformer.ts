@@ -168,10 +168,11 @@ export class Transformer {
       // Process transform for each newly completed block
       // Need to calculate the inputOffset for each block before the accumulator offset changed
       const currentWriteOffset = this.accumulator.getOutputBufferWriteOffset();
+      console.log(currentWriteOffset);
       const blocksRequired = Math.ceil(this.waveletTransform.getMinWindowSize() / this.config.blockSize);
       const blocksToProcess = Math.max(this.unprocessedBlocks - blocksRequired, 0);
       for (let i = 0; i < blocksToProcess; i++) {
-        const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i) * this.config.blockSize;
+        const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i - 1) * this.config.blockSize;
         this.processTransform(blockInputOffset);
       }
       this.unprocessedBlocks -= blocksToProcess;
@@ -199,7 +200,7 @@ export class Transformer {
     if (outputBufferWriteOffset >= this.minWindowSize) {
       // Perform CQT transform (buffers already configured in constructor)
       // WaveletTransform now manages its own write position and always generates blockSize/batchFactor frames
-      console.log(inputOffset);
+      //console.log(inputOffset);
       this.waveletTransform.transform(inputOffset);
 
       // Update spectrogram textures with the newly generated CQT data

@@ -1,10 +1,18 @@
 import type { Spectrogram } from "./spectrogram.ts";
 
 /**
- * ScopeRenderer - Displays Spectrogram textures in real-time
+ * Uniform buffer data for UV scaling and offset
+ */
+interface UniformData {
+  uvScale: [number, number];
+  uvOffset: [number, number];
+}
+
+/**
+ * ScopeRenderer - Displays Spectrogram texture
  *
- * Simple approach: One full-screen quad that samples from a texture array
- * based on UV coordinates to display all textures side-by-side.
+ * Simple approach: Full-screen quad that renders the spectrogram texture
+ * with UV scaling/offset controlled by a uniform buffer.
  */
 export class ScopeRenderer {
   private device: GPUDevice;
@@ -27,7 +35,7 @@ export class ScopeRenderer {
     // Get canvas context
     this.context = canvas.getContext("webgpu");
     if (!this.context) {
-      console.error("Failed to get WebGPU context");
+      console.error("ScopeRenderer: Failed to get WebGPU context");
       return false;
     }
 
@@ -38,16 +46,39 @@ export class ScopeRenderer {
       alphaMode: "opaque",
     });
 
-    // Create pipeline and bind group
+    // Create uniform buffer (uvScale, uvOffset - 4 floats)
+    this.createUniformBuffer();
+
+    // Create pipeline
     this.createPipeline();
+
+    // Create bind group
     this.createBindGroup();
 
     console.log("ScopeRenderer: Initialized");
     return true;
   }
 
+  /**
+   * Create uniform buffer for UV scaling and offset
+   */
+  private createUniformBuffer(): void {
+    // Default: stretch whole texture across screen (scale=1.0, offset=0.0)
+    const uniformData = new Float32Array([
+      1.0, 1.0,  // uvScale (x, y)
+      0.0, 0.0,  // uvOffset (x, y)
+    ]);
+
+    this.uniformBuffer = this.device.createBuffer({
+      size: uniformData.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+  }
+
   private createPipeline() {
-    // Vertex shader: full-screen quad
+    // Vertex shader: full-screen quad with UV coordinates
     const vertexShader = `
       struct VertexOutput {
         @builtin(position) position: vec4<f32>,
@@ -56,17 +87,19 @@ export class ScopeRenderer {
 
       @vertex
       fn main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+        // Two triangles forming a full-screen quad
         var pos = array<vec2<f32>, 6>(
-          vec2<f32>(-1.0, -1.0),
-          vec2<f32>(1.0, -1.0),
-          vec2<f32>(-1.0, 1.0),
-          vec2<f32>(-1.0, 1.0),
-          vec2<f32>(1.0, -1.0),
-          vec2<f32>(1.0, 1.0),
+          vec2<f32>(-1.0, -1.0),  // Bottom left
+          vec2<f32>(1.0, -1.0),   // Bottom right
+          vec2<f32>(-1.0, 1.0),   // Top left
+          vec2<f32>(-1.0, 1.0),   // Top left
+          vec2<f32>(1.0, -1.0),   // Bottom right
+          vec2<f32>(1.0, 1.0),    // Top right
         );
 
+        // UV coordinates (0,0) = top-left, (1,1) = bottom-right
         var uv = array<vec2<f32>, 6>(
-          vec2<f32>(0.0, 1.0),  // Bottom left (flip Y so low freq at bottom)
+          vec2<f32>(0.0, 1.0),  // Bottom left
           vec2<f32>(1.0, 1.0),  // Bottom right
           vec2<f32>(0.0, 0.0),  // Top left
           vec2<f32>(0.0, 0.0),  // Top left
@@ -81,21 +114,24 @@ export class ScopeRenderer {
       }
     `;
 
-    // Fragment shader: sample from a large 2D texture
+    // Fragment shader: sample from spectrogram texture with UV scaling/offset
     const fragmentShader = `
+      struct Uniforms {
+        uvScale: vec2<f32>,
+        uvOffset: vec2<f32>,
+      };
+
       @group(0) @binding(0) var textureSampler: sampler;
       @group(0) @binding(1) var spectrogramTexture: texture_2d<f32>;
+      @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 
       @fragment
       fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-        // EXACTLY match how transformer_sine_sweep.png is generated:
-        // 1. Map canvas 0-1 directly to texture 0-1 (show full texture width)
-        // 2. Y is already flipped in vertex shader (uv.y 0=top, 1=bottom in texture space)
+        // Apply UV scaling and offset
+        let sampledUV = uv * uniforms.uvScale + uniforms.uvOffset;
 
-        let textureUV = vec2<f32>(uv.x, uv.y);
-
-        // Sample the texture directly
-        let color = textureSample(spectrogramTexture, textureSampler, textureUV);
+        // Sample the spectrogram texture
+        let color = textureSample(spectrogramTexture, textureSampler, sampledUV);
 
         return color;
       }
@@ -128,16 +164,20 @@ export class ScopeRenderer {
   }
 
   private createBindGroup() {
-    if (!this.pipeline) return;
+    if (!this.pipeline || !this.uniformBuffer) {
+      console.warn("ScopeRenderer: Pipeline or uniform buffer not ready");
+      return;
+    }
 
-    // Check if texture exists (it's created in configure())
+    // Get texture from spectrogram
     try {
-      const texture = this.spectrogram.getTextureArray();
+      const texture = this.spectrogram.getTexture();
       if (!texture) {
         console.warn("ScopeRenderer: Texture not yet created, skipping bind group creation");
         return;
       }
 
+      // Create sampler
       const sampler = this.device.createSampler({
         magFilter: "linear",
         minFilter: "linear",
@@ -145,6 +185,7 @@ export class ScopeRenderer {
         addressModeV: "clamp-to-edge",
       });
 
+      // Create bind group with sampler, texture, and uniform buffer
       this.bindGroup = this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(0),
         entries: [
@@ -156,8 +197,14 @@ export class ScopeRenderer {
             binding: 1,
             resource: texture.createView(),
           },
+          {
+            binding: 2,
+            resource: { buffer: this.uniformBuffer },
+          },
         ],
       });
+
+      console.log("ScopeRenderer: Bind group created successfully");
     } catch (e) {
       console.warn("ScopeRenderer: Failed to create bind group, texture may not be ready yet", e);
     }
@@ -168,6 +215,22 @@ export class ScopeRenderer {
    */
   recreateBindGroup() {
     this.createBindGroup();
+  }
+
+  /**
+   * Update UV scale and offset
+   * @param scale UV scale [x, y] - default [1.0, 1.0] stretches whole texture
+   * @param offset UV offset [x, y] - default [0.0, 0.0] starts at origin
+   */
+  setUVTransform(scale: [number, number] = [1.0, 1.0], offset: [number, number] = [0.0, 0.0]) {
+    if (!this.uniformBuffer) return;
+
+    const uniformData = new Float32Array([
+      scale[0], scale[1],
+      offset[0], offset[1],
+    ]);
+
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
   }
 
   private frameCount = 0;
@@ -205,6 +268,11 @@ export class ScopeRenderer {
     if (this.context) {
       this.context.unconfigure();
       this.context = null;
+    }
+
+    if (this.uniformBuffer) {
+      this.uniformBuffer.destroy();
+      this.uniformBuffer = null;
     }
 
     this.pipeline = null;
