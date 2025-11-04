@@ -52,7 +52,8 @@
       "Bash(deno test src/sampler/scope/tests/transformer.test.ts::sine --allow-read --allow-write)",
       "Bash(deno test --filter=\"sine sweep full pipeline\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
       "Bash(deno test --filter=\"compare CQT buffer vs Spectrogram\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
-      "Bash(deno test --filter=\"CQT buffer direct output\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)"
+      "Bash(deno test --filter=\"CQT buffer direct output\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
+      "Bash(rm \"hello-tauri/tauri-template/src/sampler/scope/tests/buffer-comparison.test.ts\" \"hello-tauri/tauri-template/src/sampler/scope/tests/scope-renderer.test.ts\" \"hello-tauri/tauri-template/src/sampler/scope/tests/spectrogram.test.ts\" \"hello-tauri/tauri-template/src/sampler/scope/tests/wavelet-transform.test.ts\")"
     ],
     "deny": [],
     "ask": []
