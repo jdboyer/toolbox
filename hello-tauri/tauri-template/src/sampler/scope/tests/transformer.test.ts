@@ -359,7 +359,7 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
   await saveCQTAsPNG(cqtData, maxTimeFrames, numBins, cqtBufferPath);
 
   // Save Spectrogram texture - the actual GPU texture used for rendering
-  const spectrogramTexture = spectrogram.getTextureArray();
+  const spectrogramTexture = spectrogram.getTexture();
   const spectrogramWidth = spectrogram.getTextureWidth();
   const spectrogramHeight = spectrogram.getTextureHeight();
   await saveTextureAsPNG(device, spectrogramTexture, spectrogramWidth, spectrogramHeight, spectrogramTexturePath);
@@ -409,9 +409,8 @@ Generated: ${new Date().toISOString()}
 ### Buffer Dimensions
 - **Accumulator Output**: ${accWriteOffset} samples (1D buffer)
 - **WaveletTransform Output**: ${maxTimeFrames} frames × ${numBins} bins (buffer capacity)
-- **Spectrogram Textures**: ${spectrogram.getTextures().length} texture(s)
-  - Texture Dimensions: ${spectrogram.getTextureWidth()} × ${spectrogram.getTextureHeight()}
-  - Write Position: ${spectrogram.getWritePosition()}
+- **Spectrogram Texture**: ${spectrogram.getTextureWidth()} × ${spectrogram.getTextureHeight()} pixels
+  - Write Position: ${spectrogram.getWritePosition()} frames
 
 ## Visualizations
 

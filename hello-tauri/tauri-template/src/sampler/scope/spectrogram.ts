@@ -1,17 +1,13 @@
 /**
- * Spectrogram - Manages a ring buffer of WebGPU textures for CQT visualization
+ * Spectrogram - Manages a single WebGPU texture for CQT visualization
  *
  * This class is responsible for:
- * 1. Creating and managing a texture array ring buffer
- * 2. Converting CQT data from storage buffer to textures using compute shaders
- * 3. Managing texture coordinates and ring buffer wrapping
+ * 1. Creating and managing a large 2D texture ring buffer
+ * 2. Converting CQT data from storage buffer to texture using compute shaders
+ * 3. Managing write position and ring buffer wrapping
  */
 
 export interface SpectrogramConfig {
-  /** Number of textures in the ring buffer */
-  textureCount: number;
-  /** Number of time frames per texture (must be power of 2, default: 1024) */
-  framesPerTexture: number;
   /** Number of frequency bins (will be rounded up to nearest power of 2) */
   numBins: number;
 }
@@ -37,10 +33,9 @@ export class Spectrogram {
   private config: SpectrogramConfig;
 
   // Texture properties
-  private textures: GPUTexture[] = []; // Legacy: keep for compatibility with tests
-  private textureArray: GPUTexture | null = null; // Large 2D texture containing all frames
+  private texture: GPUTexture | null = null; // Single large 2D texture containing all frames
   private textureHeight: number; // Rounded up numBins (power of 2)
-  private textureWidth: number; // Total width (framesPerTexture * textureCount)
+  private textureWidth: number; // Total width (matches input buffer capacity)
 
   // Input buffer (configured externally)
   private inputBuffer: GPUBuffer | null = null;
@@ -67,19 +62,12 @@ export class Spectrogram {
 
     // Set configuration with defaults
     this.config = {
-      textureCount: config.textureCount ?? 8,
-      framesPerTexture: config.framesPerTexture ?? 1024,
       numBins: config.numBins ?? 128,
     };
 
-    // For backward compatibility with tests that don't call configure(),
-    // set a default texture width based on the old formula
-    // This will be overridden in configure() to match the actual input buffer
-    this.textureWidth = this.config.framesPerTexture * this.config.textureCount;
+    // Will be set in configure() to match the actual input buffer
+    this.textureWidth = 0;
     this.textureHeight = nextPowerOf2(this.config.numBins);
-
-    // Create default texture (will be recreated in configure() if size changes)
-    this.createTextures();
 
     // Initialize WebGPU resources (shaders, pipelines)
     this.initializeWebGPU();
@@ -88,11 +76,11 @@ export class Spectrogram {
   /**
    * Create one large 2D texture
    */
-  private createTextures(): void {
-    console.log(`Spectrogram: Creating texture ${this.textureWidth}x${this.textureHeight} (${this.config.textureCount} textures of ${this.config.framesPerTexture} frames each)`);
+  private createTexture(): void {
+    console.log(`Spectrogram: Creating texture ${this.textureWidth}x${this.textureHeight}`);
 
     // Create a single large 2D texture
-    this.textureArray = this.device.createTexture({
+    this.texture = this.device.createTexture({
       size: {
         width: this.textureWidth,
         height: this.textureHeight,
@@ -101,17 +89,6 @@ export class Spectrogram {
       format: "rgba8unorm",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
     });
-
-    // Legacy: populate textures array for backward compatibility with tests
-    // Create sub-views that represent the old "ring buffer texture" layout
-    const framesPerTexture = this.config.framesPerTexture;
-    this.textures = [];
-    for (let i = 0; i < this.config.textureCount; i++) {
-      // Each "texture" is actually a view into a horizontal slice of the big texture
-      // Note: WebGPU doesn't support arbitrary rectangular views, so we just store the main texture
-      // Tests will need to account for the horizontal offset when reading
-      this.textures.push(this.textureArray);
-    }
   }
 
   /**
@@ -264,10 +241,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     console.log(`Spectrogram.configure: Creating texture with width=${this.textureWidth} to match input maxFrames=${maxFrames}`);
 
     // Create or recreate texture with correct dimensions
-    if (this.textureArray) {
-      this.textureArray.destroy();
+    if (this.texture) {
+      this.texture.destroy();
     }
-    this.createTextures();
+    this.createTexture();
 
     this.inputBuffer = inputBuffer;
     this.inputNumBins = numBins;
@@ -345,7 +322,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
         layout: this.bindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: this.inputBuffer } },
-          { binding: 1, resource: this.textureArray!.createView() },
+          { binding: 1, resource: this.texture!.createView() },
           { binding: 2, resource: { buffer: paramsBuffer } },
         ],
       });
@@ -380,44 +357,19 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   }
 
   /**
-   * Get a specific texture from the ring buffer
-   * @param index Texture index (0 to textureCount-1)
+   * Get the texture for rendering
    */
-  getTexture(index: number): GPUTexture {
-    if (index < 0 || index >= this.textures.length) {
-      throw new Error(`Texture index ${index} out of range [0, ${this.textures.length - 1}]`);
+  getTexture(): GPUTexture {
+    if (!this.texture) {
+      throw new Error("Texture not initialized");
     }
-    return this.textures[index];
-  }
-
-  /**
-   * Get all textures in the ring buffer (legacy compatibility)
-   */
-  getTextures(): GPUTexture[] {
-    return this.textures;
-  }
-
-  /**
-   * Get the texture array (preferred method for rendering with texture_2d_array)
-   */
-  getTextureArray(): GPUTexture {
-    if (!this.textureArray) {
-      throw new Error("Texture array not initialized");
-    }
-    return this.textureArray;
-  }
-
-  /**
-   * Get the current write position (texture index)
-   */
-  getWritePosition(): number {
-    return Math.floor(this.writePosition / this.config.framesPerTexture) % this.config.textureCount;
+    return this.texture;
   }
 
   /**
    * Get the current write position in frames (0 to totalCapacity-1)
    */
-  getWritePositionInFrames(): number {
+  getWritePosition(): number {
     return this.writePosition;
   }
 
@@ -443,15 +395,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   }
 
   /**
-   * Get the number of textures in the ring buffer
-   */
-  getTextureCount(): number {
-    return this.config.textureCount;
-  }
-
-  /**
-   * Get the total capacity in frames (textureCount * framesPerTexture)
-   * Note: textureWidth is already the full width (textureCount * framesPerTexture)
+   * Get the total capacity in frames (same as texture width)
    */
   getTotalCapacity(): number {
     return this.textureWidth;
@@ -465,22 +409,14 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     this.totalFramesWritten = 0;
 
     // Clear the texture to black by writing zeros
-    if (this.textureArray) {
-      // Create a buffer full of zeros
-      const bytesPerPixel = 4; // RGBA8
-      const bufferSize = this.textureWidth * this.textureHeight * bytesPerPixel;
-      const zeroData = new Uint8Array(bufferSize);
-
-      // Write zeros to texture via a staging buffer
-      const commandEncoder = this.device.createCommandEncoder();
-
+    if (this.texture) {
       // We need to use writeTexture, but it requires proper alignment
-      // For simplicity, just write black rows
+      const bytesPerPixel = 4; // RGBA8
       const bytesPerRow = Math.ceil((this.textureWidth * bytesPerPixel) / 256) * 256;
       const alignedData = new Uint8Array(bytesPerRow * this.textureHeight);
 
       this.device.queue.writeTexture(
-        { texture: this.textureArray },
+        { texture: this.texture },
         alignedData,
         { bytesPerRow, rowsPerImage: this.textureHeight },
         { width: this.textureWidth, height: this.textureHeight }
@@ -494,11 +430,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
    * Cleanup and destroy WebGPU resources
    */
   destroy(): void {
-    if (this.textureArray) {
-      this.textureArray.destroy();
-      this.textureArray = null;
+    if (this.texture) {
+      this.texture.destroy();
+      this.texture = null;
     }
-    this.textures = [];
     this.configured = false;
     this.inputBuffer = null;
   }

@@ -117,8 +117,6 @@ export class Transformer {
 
     // Create spectrogram
     const spectrogramConfig: Partial<SpectrogramConfig> = {
-      textureCount: 8, // 8 textures in the ring buffer
-      framesPerTexture: 1024, // 1024 frames per texture
       numBins: this.waveletTransform.getNumBins(),
     };
     this.spectrogram = new Spectrogram(this.device, spectrogramConfig);
