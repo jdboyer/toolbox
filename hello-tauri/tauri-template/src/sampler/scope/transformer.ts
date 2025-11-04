@@ -60,6 +60,7 @@ export class Transformer {
   // Tracking for spectrogram updates
   private lastSpectrogramFrame: number = 0; // Last frame written to spectrogram
   private blocksProcessed: number = 0; // Track how many blocks have been processed
+  private unprocessedBlocks: number = 0; // Track how many blocks have been processed
 
   /**
    * Create a Transformer instance
@@ -162,16 +163,25 @@ export class Transformer {
 
       // Accumulator handles block completion and output buffer preparation
       const blocksCompleted = this.accumulator.addSamples(chunk);
+      this.unprocessedBlocks += blocksCompleted;
 
       // Process transform for each newly completed block
       // Need to calculate the inputOffset for each block before the accumulator offset changed
       const currentWriteOffset = this.accumulator.getOutputBufferWriteOffset();
-      for (let i = 0; i < blocksCompleted; i++) {
-        // Calculate inputOffset for this specific block
-        // The blocks are at positions: currentWriteOffset - blocksCompleted*blockSize + i*blockSize
-        const blockInputOffset = currentWriteOffset - (blocksCompleted - i) * this.config.blockSize;
+      const blocksRequired = Math.ceil(this.waveletTransform.getMinWindowSize() / this.config.blockSize);
+      const blocksToProcess = Math.max(this.unprocessedBlocks - blocksRequired, 0);
+      for (let i = 0; i < blocksToProcess; i++) {
+        const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i) * this.config.blockSize;
         this.processTransform(blockInputOffset);
       }
+      this.unprocessedBlocks -= blocksToProcess;
+      //for (let i = 0; i < blocksCompleted; i++) {
+        // Calculate inputOffset for this specific block
+        // The blocks are at positions: currentWriteOffset - blocksCompleted*blockSize + i*blockSize
+        //const blockInputOffset = currentWriteOffset - (blocksCompleted - i) * this.config.blockSize;
+        //const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks - blocksCompleted + i) * this.config.blockSize;
+        //this.processTransform(blockInputOffset);
+      //}
 
       offset += chunkSize;
     }

@@ -504,6 +504,14 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   }
 
   /**
+   * Get the minimum window size in samples required to perform the batch transform
+   * This is the length of the largest CQT kernel (lowest frequency bin)
+   */
+  getMinWindowSize(): number {
+    return this.maxKernelLength;
+  }
+
+  /**
    * Reset the wavelet transform to initial state
    */
   reset(): void {
