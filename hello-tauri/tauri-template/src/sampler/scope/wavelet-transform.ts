@@ -497,6 +497,13 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   }
 
   /**
+   * Get the current write position in the output buffer
+   */
+  getWritePosition(): number {
+    return this.writePosition;
+  }
+
+  /**
    * Reset the wavelet transform to initial state
    */
   reset(): void {

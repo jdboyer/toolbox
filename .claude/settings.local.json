@@ -47,7 +47,12 @@
       "Bash(deno test --filter \"compare CQT buffer vs Spectrogram\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write --parallel)",
       "Bash(deno cache --reload src/sampler/scope/spectrogram.ts)",
       "Bash(deno test --allow-read --allow-write --parallel)",
-      "Bash(deno test src/sampler/scope/tests/spectrogram.test.ts::basic --allow-read --allow-write)"
+      "Bash(deno test src/sampler/scope/tests/spectrogram.test.ts::basic --allow-read --allow-write)",
+      "Bash(deno test hello-tauri/tauri-template/src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write --parallel)",
+      "Bash(deno test src/sampler/scope/tests/transformer.test.ts::sine --allow-read --allow-write)",
+      "Bash(deno test --filter=\"sine sweep full pipeline\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
+      "Bash(deno test --filter=\"compare CQT buffer vs Spectrogram\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)",
+      "Bash(deno test --filter=\"CQT buffer direct output\" src/sampler/scope/tests/transformer.test.ts --allow-read --allow-write)"
     ],
     "deny": [],
     "ask": []

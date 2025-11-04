@@ -163,8 +163,13 @@ export class Transformer {
       const blocksCompleted = this.accumulator.addSamples(chunk);
 
       // Process transform for each newly completed block
+      // Need to calculate the inputOffset for each block before the accumulator offset changed
+      const currentWriteOffset = this.accumulator.getOutputBufferWriteOffset();
       for (let i = 0; i < blocksCompleted; i++) {
-        this.processTransform();
+        // Calculate inputOffset for this specific block
+        // The blocks are at positions: currentWriteOffset - blocksCompleted*blockSize + i*blockSize
+        const blockInputOffset = currentWriteOffset - (blocksCompleted - i) * this.config.blockSize;
+        this.processTransform(blockInputOffset);
       }
 
       offset += chunkSize;
@@ -176,13 +181,11 @@ export class Transformer {
    * This method is called once for each block that has been added to the accumulator
    * and is ready for processing
    */
-  processTransform(): void {
-    // Calculate the input offset for THIS specific block
-    // Each block starts at: blocksProcessed * blockSize
-    const inputOffset = this.blocksProcessed * this.config.blockSize;
+  processTransform(inputOffset: number): void {
+    const outputBufferWriteOffset = this.accumulator.getOutputBufferWriteOffset();
 
     // Only process if we have enough samples
-    if (this.accumulator.getOutputBufferWriteOffset() >= this.minWindowSize) {
+    if (outputBufferWriteOffset >= this.minWindowSize) {
       // Perform CQT transform (buffers already configured in constructor)
       // WaveletTransform now manages its own write position and always generates blockSize/batchFactor frames
       this.waveletTransform.transform(inputOffset);
@@ -200,11 +203,6 @@ export class Transformer {
 
       // Increment blocks processed counter
       this.blocksProcessed++;
-
-      // Logging disabled
-      // if (this.blocksProcessed % 10 === 0) {
-      //   console.log(`Transformer: processed ${this.blocksProcessed} blocks, frames: ${this.lastSpectrogramFrame}/${this.waveletTransform.getMaxTimeFrames()}`);
-      // }
     }
   }
 
