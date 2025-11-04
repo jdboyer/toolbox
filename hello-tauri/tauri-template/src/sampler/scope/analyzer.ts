@@ -129,9 +129,9 @@ export class Analyzer {
   /**
    * Get the transformer instance
    */
-  //getTransformer(): Transformer {
-    //return this.transformer;
-  //}
+  getTransformer(): Transformer {
+    return this.transformer;
+  }
 
   /**
    * Initialize the scope renderer with a canvas

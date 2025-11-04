@@ -289,4 +289,11 @@ export class Transformer {
   getConfig(): TransformerConfig {
     return this.config;
   }
+
+  /**
+   * Get the hop length (samples per frame)
+   */
+  getHopLength(): number {
+    return this.waveletTransform.getHopLength();
+  }
 }
