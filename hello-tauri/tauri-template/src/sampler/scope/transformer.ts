@@ -17,8 +17,6 @@ export interface TransformerConfig {
   fMax: number;
   /** Number of frequency bins per octave */
   binsPerOctave: number;
-  /** Hop length in samples */
-  hopLength: number;
 }
 
 /**
@@ -80,11 +78,14 @@ export class Transformer {
       fMin: config?.fMin ?? defaultFreqRange.fMin,
       fMax: config?.fMax ?? defaultFreqRange.fMax,
       binsPerOctave: config?.binsPerOctave ?? 12,
-      hopLength: config?.hopLength ?? 512,
     };
 
+    // Default batch factor (hardcoded, not user-configurable)
+    const batchFactor = 8;
+    const hopLength = this.config.blockSize / batchFactor;
+
     // Calculate minimum window size for CQT
-    this.minWindowSize = this.calculateMinWindowSize() + this.config.hopLength;
+    this.minWindowSize = this.calculateMinWindowSize() + hopLength;
 
     // Create accumulator with minWindowSize for proper buffer management
     this.accumulator = new Accumulator(
@@ -102,7 +103,7 @@ export class Transformer {
       fMax: this.config.fMax,
       binsPerOctave: this.config.binsPerOctave,
       blockSize: this.config.blockSize,
-      batchFactor: this.config.blockSize / this.config.hopLength, // Calculate batchFactor from hopLength
+      batchFactor: batchFactor,
       maxBlocks: this.config.maxBlocks,
     };
     this.waveletTransform = new WaveletTransform(this.device, cqtConfig);
@@ -151,7 +152,7 @@ export class Transformer {
    * @param samples Float32Array containing audio samples
    */
   addSamples(samples: Float32Array): void {
-    const MAX_CHUNK_SIZE = 65536;
+    const MAX_CHUNK_SIZE = 4096;
     let offset = 0;
 
     while (offset < samples.length) {
@@ -188,6 +189,7 @@ export class Transformer {
     if (outputBufferWriteOffset >= this.minWindowSize) {
       // Perform CQT transform (buffers already configured in constructor)
       // WaveletTransform now manages its own write position and always generates blockSize/batchFactor frames
+      console.log(inputOffset);
       this.waveletTransform.transform(inputOffset);
 
       // Update spectrogram textures with the newly generated CQT data

@@ -9,6 +9,7 @@ import { assert } from "@std/assert";
 import { Transformer, type TransformerConfig } from "../transformer.ts";
 import { getTestDevice } from "./test-helpers.ts";
 import { generateSineSweep } from "./audio-generators.ts";
+import { saveCQTAsPNG } from "./image-helpers.ts";
 import { encode as encodePNG } from "https://deno.land/x/pngs@0.1.1/mod.ts";
 
 /**
@@ -98,11 +99,17 @@ async function saveAccumulatorBufferAsPNG(
   outputPath: string,
   width: number = 800,
   height: number = 200,
-  overlapSamples: number = 0
+  overlapSamples: number = 0,
+  writeOffset: number = 0
 ): Promise<void> {
   const imageData = new Uint8Array(width * height * 4);
 
-  // Fill with white background
+  // Calculate pixel positions
+  const samplesPerPixel = data.length / width;
+  const overlapPixels = Math.floor(overlapSamples / samplesPerPixel);
+  const writeOffsetPixels = Math.floor(writeOffset / samplesPerPixel);
+
+  // Fill with white background (active region)
   for (let i = 0; i < imageData.length; i += 4) {
     imageData[i] = 255;
     imageData[i + 1] = 255;
@@ -110,9 +117,16 @@ async function saveAccumulatorBufferAsPNG(
     imageData[i + 3] = 255;
   }
 
-  // Calculate overlap region in pixels
-  const samplesPerPixel = data.length / width;
-  const overlapPixels = Math.floor(overlapSamples / samplesPerPixel);
+  // Draw gray background for stale/unused region (after write offset)
+  for (let y = 0; y < height; y++) {
+    for (let x = writeOffsetPixels; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      imageData[idx] = 220;     // R
+      imageData[idx + 1] = 220; // G
+      imageData[idx + 2] = 220; // B (light gray)
+      imageData[idx + 3] = 255; // A
+    }
+  }
 
   // Draw semi-transparent yellow overlay for overlap/backfill region
   if (overlapSamples > 0 && overlapPixels > 0) {
@@ -166,7 +180,6 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
   // Configuration
   const sampleRate = 48000;
   const blockSize = 4096;
-  const hopLength = 512;
   const fMin = 100;
   const fMax = 4000;
   const binsPerOctave = 12;
@@ -179,31 +192,31 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
     fMin,
     fMax,
     binsPerOctave,
-    hopLength,
   };
 
   // Create Transformer
   const transformer = new Transformer(device, config);
 
-  // Generate test pattern: each block has a distinct DC value
-  // This makes blocks visually identifiable in the output images
+  // Generate test signal: sine sweep with amplitude modulation
+  // The amplitude modulation creates a visible periodic pattern
+  // that makes discontinuities easy to spot
   const duration = 2.0; // seconds
-  const totalSamples = Math.floor(sampleRate * duration);
-  const audioData = new Float32Array(totalSamples);
+  const modulationPeriodSamples = 10000; // Period of amplitude modulation
 
-  // Fill each block with a different DC value
-  const numTestBlocks = Math.ceil(totalSamples / blockSize);
-  for (let blockIdx = 0; blockIdx < numTestBlocks; blockIdx++) {
-    const startSample = blockIdx * blockSize;
-    const endSample = Math.min(startSample + blockSize, totalSamples);
+  const audioData = generateSineSweep({
+    startFrequency: 200,
+    endFrequency: 2000,
+    sampleRate,
+    duration,
+    amplitude: 0.8,
+    sweepType: "logarithmic",
+  });
 
-    // Generate a distinct value for each block (alternating pattern with amplitude variation)
-    // This creates a clear staircase pattern in the waveform visualization
-    const blockValue = (blockIdx % 2 === 0 ? 0.3 : -0.3) * (1 + blockIdx * 0.05);
-
-    for (let i = startSample; i < endSample; i++) {
-      audioData[i] = blockValue;
-    }
+  // Apply amplitude modulation to make patterns visible
+  for (let i = 0; i < audioData.length; i++) {
+    const modulationPhase = (2 * Math.PI * i) / modulationPeriodSamples;
+    const modulationEnvelope = 0.5 + 0.5 * Math.sin(modulationPhase);
+    audioData[i] *= modulationEnvelope;
   }
 
   // Process audio through transformer
@@ -217,24 +230,19 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
   // Read configuration and buffer information
   const transformerConfig = transformer.getConfig();
   const numBins = waveletTransform.getNumBins();
-  const batchFactor = blockSize / hopLength;
+  const batchFactor = waveletTransform.getBatchFactor();
+  const hopLength = waveletTransform.getHopLength();
   const numBlocks = Math.floor(audioData.length / blockSize);
   const totalFrames = numBlocks * batchFactor;
 
   // Accumulator information
-  const accOutputBufferSize = 4096 * 16; // Known from accumulator.ts
+  const accOutputBufferSize = accumulator.getOutputBufferSize();
   const accWriteOffset = accumulator.getOutputBufferWriteOffset();
 
-  // Calculate overlap/backfill region size
-  // When buffer wraps, it copies ceil(minWindowSize / blockSize) previous blocks
-  // minWindowSize = calculateMinWindowSize() + hopLength (from transformer.ts)
-  // For CQT, minWindowSize is based on the lowest frequency window
-  // Approximate calculation: we'll compute based on config
-  const lowestFreqPeriod = 1 / fMin;
-  const lowestFreqSamples = Math.ceil(lowestFreqPeriod * sampleRate);
-  const minWindowSize = lowestFreqSamples + hopLength;
-  const blocksNeededForOverlap = Math.ceil(minWindowSize / blockSize);
-  const overlapSamples = blocksNeededForOverlap * blockSize;
+  // Get overlap/backfill region size from Accumulator
+  // This is the number of blocks copied from the previous buffer when wrapping around
+  const overlapRegionBlocks = accumulator.getOverlapRegionBlocks();
+  const overlapSamples = overlapRegionBlocks * blockSize;
 
   // Read the Accumulator output buffer
   const accBuffer = accumulator.getOutputBuffer();
@@ -243,6 +251,12 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
     accBuffer,
     accOutputBufferSize * 4 // Float32 = 4 bytes
   );
+
+  // Read the WaveletTransform output buffer (CQT magnitudes)
+  const cqtBuffer = waveletTransform.getOutputBuffer();
+  const maxTimeFrames = waveletTransform.getMaxTimeFrames();
+  const cqtBufferSize = maxTimeFrames * numBins * 4; // Float32 = 4 bytes
+  const cqtData = await readGPUBuffer(device, cqtBuffer, cqtBufferSize);
 
   // Create output directory
   const outputDir = "src/sampler/scope/tests/output";
@@ -262,9 +276,14 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
 
   const inputWaveformPath = `${outputDir}/input_waveform.png`;
   const accBufferPath = `${outputDir}/accumulator_buffer.png`;
+  const cqtBufferPath = `${outputDir}/cqt_buffer.png`;
 
   await saveWaveformAsPNG(audioData, inputWaveformPath, inputWidth, baseHeight);
-  await saveAccumulatorBufferAsPNG(accBufferData, accBufferPath, accBufferWidth, baseHeight, overlapSamples);
+  await saveAccumulatorBufferAsPNG(accBufferData, accBufferPath, accBufferWidth, baseHeight, overlapSamples, accWriteOffset);
+
+  // Save CQT buffer - visualize the frequency-time representation
+  // Width = time frames actually written, Height = frequency bins
+  await saveCQTAsPNG(cqtData, totalFrames, numBins, cqtBufferPath);
 
   // Generate markdown report
   const markdownPath = `${outputDir}/transformer_verification.md`;
@@ -278,7 +297,6 @@ Generated: ${new Date().toISOString()}
 - **Sample Rate**: ${transformerConfig.sampleRate} Hz
 - **Block Size**: ${transformerConfig.blockSize} samples
 - **Max Blocks**: ${transformerConfig.maxBlocks}
-- **Hop Length**: ${transformerConfig.hopLength} samples
 - **Batch Factor**: ${batchFactor} (frames per block)
 
 ### Frequency Analysis Settings
@@ -287,10 +305,10 @@ Generated: ${new Date().toISOString()}
 - **Total Frequency Bins**: ${numBins}
 
 ### Test Signal
-- **Type**: Block pattern (each block has a distinct DC value)
-- **Pattern**: Alternating positive/negative values with increasing amplitude
+- **Type**: Logarithmic sine sweep with amplitude modulation
+- **Frequency Range**: 200 Hz - 2000 Hz
+- **Amplitude Modulation**: Sine wave with ${modulationPeriodSamples} sample period (~${(modulationPeriodSamples / sampleRate * 1000).toFixed(1)} ms)
 - **Duration**: ${duration} seconds
-- **Number of Test Blocks**: ${numTestBlocks}
 - **Total Samples**: ${audioData.length}
 
 ## Processing Statistics
@@ -305,9 +323,9 @@ Generated: ${new Date().toISOString()}
 - **Buffer Capacity**: ${accOutputBufferSize} samples
 - **Current Write Offset**: ${accWriteOffset} samples
 - **Buffer Utilization**: ${((accWriteOffset / accOutputBufferSize) * 100).toFixed(1)}%
-- **Wrap-Around Overlap Size**: ${overlapSamples} samples (${blocksNeededForOverlap} blocks)
+- **Wrap-Around Overlap Size**: ${overlapSamples} samples (${overlapRegionBlocks} blocks)
   - This is the amount of previous data copied when buffer wraps around
-  - Based on minimum window size needed for CQT analysis: ${minWindowSize} samples
+  - Ensures sufficient context for CQT analysis of lowest frequencies
 
 ### Buffer Dimensions
 - **Accumulator Output**: ${accWriteOffset} samples (1D buffer)
@@ -322,11 +340,11 @@ Generated: ${new Date().toISOString()}
 
 ![Input Waveform](input_waveform.png)
 
-The input signal is a block pattern where each ${blockSize}-sample block has a distinct DC value.
+The input signal is a logarithmic sine sweep from 200 Hz to 2000 Hz with amplitude modulation.
 - Total duration: ${duration} seconds
 - Total samples: ${audioData.length}
-- Number of blocks: ${numTestBlocks}
-- Pattern: Alternating positive/negative with increasing amplitude (creates a staircase pattern)
+- Amplitude modulation period: ${modulationPeriodSamples} samples (~${(modulationPeriodSamples / sampleRate * 1000).toFixed(1)} ms)
+- The modulation creates visible periodic patterns to help identify any discontinuities
 - Image dimensions: ${inputWidth}×${baseHeight} pixels
 
 ### Accumulator Output Buffer
@@ -341,8 +359,29 @@ The Accumulator's GPU output buffer contains the processed audio blocks ready fo
 - **Yellow overlay**: Shows the overlap/backfill region (${overlapSamples} samples)
   - When the buffer wraps around, this region is copied from the end of the previous buffer
   - This overlap ensures continuous CQT analysis windows across buffer boundaries
+- **Gray background**: Shows the stale/unused region (after write offset)
+  - This data is from the previous wrap-around cycle and is not currently active
+  - Occupies ${((1 - accWriteOffset / accOutputBufferSize) * 100).toFixed(1)}% of buffer capacity
 - Image dimensions: ${accBufferWidth}×${baseHeight} pixels
 - **Note**: Image width is proportional to buffer capacity (${accOutputBufferSize} samples), not write offset
+
+### WaveletTransform (CQT) Output Buffer
+
+![CQT Buffer](cqt_buffer.png)
+
+The WaveletTransform output buffer contains the Constant-Q Transform magnitudes (frequency-time representation).
+- **Buffer layout**: 2D array [time_frame][frequency_bin]
+- **Dimensions**: ${totalFrames} time frames × ${numBins} frequency bins
+- **Buffer capacity**: ${maxTimeFrames} time frames (maximum storage)
+- **Current data**: ${totalFrames} frames written (${((totalFrames / maxTimeFrames) * 100).toFixed(1)}% of capacity)
+- **Frequency range**: ${fMin} Hz - ${fMax} Hz (${binsPerOctave} bins per octave)
+- **Time resolution**: Each frame represents ${hopLength} samples (${(hopLength / sampleRate * 1000).toFixed(2)} ms)
+- **Data format**: Float32 magnitudes (outputs of CQT analysis)
+- **Visualization**:
+  - X-axis: Time frames (left to right)
+  - Y-axis: Frequency bins (low to high, bottom to top)
+  - Color: Magnitude (black = low, red/yellow/white = high)
+- The sine sweep with amplitude modulation should appear as a diagonal line with periodic intensity variations
 
 ## Data Flow Summary
 
@@ -387,6 +426,7 @@ Spectrogram (GPU textures for rendering)
   console.log(`\n✓ Verification report generated: ${markdownPath}`);
   console.log(`✓ Input waveform saved: ${inputWaveformPath}`);
   console.log(`✓ Accumulator buffer saved: ${accBufferPath}`);
+  console.log(`✓ CQT buffer saved: ${cqtBufferPath}`);
 
   // Assertions to verify the test ran correctly
   assert(audioData.length > 0, "Audio data should be generated");
@@ -404,6 +444,9 @@ Spectrogram (GPU textures for rendering)
 
   const accStat = await Deno.stat(accBufferPath);
   assert(accStat.size > 0, "Accumulator buffer PNG should not be empty");
+
+  const cqtStat = await Deno.stat(cqtBufferPath);
+  assert(cqtStat.size > 0, "CQT buffer PNG should not be empty");
 
   // Cleanup
   transformer.destroy();
