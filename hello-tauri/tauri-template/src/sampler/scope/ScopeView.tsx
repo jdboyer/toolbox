@@ -70,19 +70,28 @@ export function ScopeView({ canvasWidth, canvasHeight = 400, timeRange, timeOffs
       // Get transformer to access timing information
       const transformer = analyzer.getTransformer();
       const spectrogram = transformer.getSpectrogram();
-      const hopLength = transformer.getHopLength();
+      const config = transformer.getConfig();
+      const batchFactor = transformer.getBatchFactor();
 
-      // Calculate texture dimensions and time mapping
+      // Calculate frame-to-time ratio
+      // hopLength = blockSize / batchFactor (samples per frame)
+      const hopLength = config.blockSize / batchFactor;
+      const msPerFrame = (hopLength / sampleRate) * 1000;
+
+      // Calculate texture dimensions and total duration
       const textureWidth = spectrogram.getTextureWidth();
-      const totalDurationMs = (textureWidth * hopLength / sampleRate) * 1000;
+      const totalDurationMs = textureWidth * msPerFrame;
 
       // Calculate UV scale and offset
-      // uvScale.x controls how much of the texture we show (zoom)
-      // uvOffset.x controls which part of the texture we start from (pan)
-      const uvScaleX = totalDurationMs / timeRange; // How much texture to show
-      const uvOffsetX = timeOffset / totalDurationMs; // Where to start in the texture
+      // uvScale.x: What fraction of the texture to display (0-1+)
+      //   - If timeRange < totalDuration, we zoom IN (show less of texture, smaller scale)
+      //   - If timeRange > totalDuration, we zoom OUT (show more of texture, larger scale)
+      const uvScaleX = timeRange / totalDurationMs;
 
-      // Y-axis: show full frequency range (no zoom)
+      // uvOffset.x: Which part of the texture to start from (normalized 0-1)
+      const uvOffsetX = timeOffset / totalDurationMs;
+
+      // Y-axis: show full frequency range (no zoom/pan)
       const uvScaleY = 1.0;
       const uvOffsetY = 0.0;
 

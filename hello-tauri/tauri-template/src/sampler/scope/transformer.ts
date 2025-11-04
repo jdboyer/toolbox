@@ -56,6 +56,7 @@ export class Transformer {
 
   // CQT parameters
   private minWindowSize: number; // Minimum samples needed for CQT
+  private batchFactor: number; // Frames per block (blockSize / hopLength)
 
   // Tracking for spectrogram updates
   private lastSpectrogramFrame: number = 0; // Last frame written to spectrogram
@@ -82,8 +83,8 @@ export class Transformer {
     };
 
     // Default batch factor (hardcoded, not user-configurable)
-    const batchFactor = 8;
-    const hopLength = this.config.blockSize / batchFactor;
+    this.batchFactor = 8;
+    const hopLength = this.config.blockSize / this.batchFactor;
 
     // Calculate minimum window size for CQT
     this.minWindowSize = this.calculateMinWindowSize() + hopLength;
@@ -104,7 +105,7 @@ export class Transformer {
       fMax: this.config.fMax,
       binsPerOctave: this.config.binsPerOctave,
       blockSize: this.config.blockSize,
-      batchFactor: batchFactor,
+      batchFactor: this.batchFactor,
       maxBlocks: this.config.maxBlocks,
     };
     this.waveletTransform = new WaveletTransform(this.device, cqtConfig);
@@ -295,5 +296,12 @@ export class Transformer {
    */
   getHopLength(): number {
     return this.waveletTransform.getHopLength();
+  }
+
+  /**
+   * Get the batch factor (frames per block)
+   */
+  getBatchFactor(): number {
+    return this.batchFactor;
   }
 }
