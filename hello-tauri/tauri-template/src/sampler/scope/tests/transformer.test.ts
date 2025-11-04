@@ -92,6 +92,70 @@ async function readGPUBuffer(
 }
 
 /**
+ * Read RGBA data from GPU texture
+ */
+async function readGPUTexture(
+  device: GPUDevice,
+  texture: GPUTexture,
+  width: number,
+  height: number
+): Promise<Uint8Array> {
+  // Create a buffer to copy texture data into
+  const bytesPerPixel = 4; // RGBA8
+  const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256; // Must be aligned to 256
+  const bufferSize = bytesPerRow * height;
+
+  const readBuffer = device.createBuffer({
+    size: bufferSize,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+
+  // Copy texture to buffer
+  const commandEncoder = device.createCommandEncoder();
+  commandEncoder.copyTextureToBuffer(
+    { texture },
+    { buffer: readBuffer, bytesPerRow },
+    { width, height }
+  );
+  device.queue.submit([commandEncoder.finish()]);
+
+  // Read buffer data
+  await readBuffer.mapAsync(GPUMapMode.READ);
+  const mappedData = new Uint8Array(readBuffer.getMappedRange());
+
+  // If data is padded, we need to extract just the actual image data
+  const imageData = new Uint8Array(width * height * bytesPerPixel);
+  for (let row = 0; row < height; row++) {
+    const srcOffset = row * bytesPerRow;
+    const dstOffset = row * width * bytesPerPixel;
+    imageData.set(
+      mappedData.subarray(srcOffset, srcOffset + width * bytesPerPixel),
+      dstOffset
+    );
+  }
+
+  readBuffer.unmap();
+  readBuffer.destroy();
+
+  return imageData;
+}
+
+/**
+ * Save GPU texture as PNG
+ */
+async function saveTextureAsPNG(
+  device: GPUDevice,
+  texture: GPUTexture,
+  width: number,
+  height: number,
+  outputPath: string
+): Promise<void> {
+  const imageData = await readGPUTexture(device, texture, width, height);
+  const png = encodePNG(imageData, width, height);
+  await Deno.writeFile(outputPath, png);
+}
+
+/**
  * Save Accumulator output buffer as PNG with overlap region highlighted
  */
 async function saveAccumulatorBufferAsPNG(
@@ -233,7 +297,6 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
   const batchFactor = waveletTransform.getBatchFactor();
   const hopLength = waveletTransform.getHopLength();
   const numBlocks = Math.floor(audioData.length / blockSize);
-  const totalFrames = numBlocks * batchFactor;
 
   // Accumulator information
   const accOutputBufferSize = accumulator.getOutputBufferSize();
@@ -258,6 +321,15 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
   const cqtBufferSize = maxTimeFrames * numBins * 4; // Float32 = 4 bytes
   const cqtData = await readGPUBuffer(device, cqtBuffer, cqtBufferSize);
 
+  // Debug: Log buffer dimensions
+  console.log(`\nCQT Buffer Info:`);
+  console.log(`  Audio length: ${audioData.length} samples`);
+  console.log(`  Block size: ${blockSize} samples`);
+  console.log(`  Num blocks processed: ${numBlocks}`);
+  console.log(`  Batch factor: ${batchFactor} frames/block`);
+  console.log(`  Max time frames (buffer capacity): ${maxTimeFrames}`);
+  console.log(`  CQT data buffer size: ${cqtData.length} floats = ${maxTimeFrames} × ${numBins}`);
+
   // Create output directory
   const outputDir = "src/sampler/scope/tests/output";
   try {
@@ -277,13 +349,20 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
   const inputWaveformPath = `${outputDir}/input_waveform.png`;
   const accBufferPath = `${outputDir}/accumulator_buffer.png`;
   const cqtBufferPath = `${outputDir}/cqt_buffer.png`;
+  const spectrogramTexturePath = `${outputDir}/spectrogram_texture.png`;
 
   await saveWaveformAsPNG(audioData, inputWaveformPath, inputWidth, baseHeight);
   await saveAccumulatorBufferAsPNG(accBufferData, accBufferPath, accBufferWidth, baseHeight, overlapSamples, accWriteOffset);
 
   // Save CQT buffer - visualize the frequency-time representation
-  // Width = time frames actually written, Height = frequency bins
-  await saveCQTAsPNG(cqtData, totalFrames, numBins, cqtBufferPath);
+  // Width = buffer capacity (maxTimeFrames), Height = frequency bins
+  await saveCQTAsPNG(cqtData, maxTimeFrames, numBins, cqtBufferPath);
+
+  // Save Spectrogram texture - the actual GPU texture used for rendering
+  const spectrogramTexture = spectrogram.getTextureArray();
+  const spectrogramWidth = spectrogram.getTextureWidth();
+  const spectrogramHeight = spectrogram.getTextureHeight();
+  await saveTextureAsPNG(device, spectrogramTexture, spectrogramWidth, spectrogramHeight, spectrogramTexturePath);
 
   // Generate markdown report
   const markdownPath = `${outputDir}/transformer_verification.md`;
@@ -315,7 +394,7 @@ Generated: ${new Date().toISOString()}
 
 ### Input Processing
 - **Number of Blocks Processed**: ${numBlocks}
-- **Time Frames Generated**: ${totalFrames}
+- **Time Frames Generated**: ${numBlocks * batchFactor}
 - **Samples per Block**: ${blockSize}
 - **Frames per Block**: ${batchFactor}
 
@@ -329,7 +408,7 @@ Generated: ${new Date().toISOString()}
 
 ### Buffer Dimensions
 - **Accumulator Output**: ${accWriteOffset} samples (1D buffer)
-- **WaveletTransform Output**: ${totalFrames} frames × ${numBins} bins
+- **WaveletTransform Output**: ${maxTimeFrames} frames × ${numBins} bins (buffer capacity)
 - **Spectrogram Textures**: ${spectrogram.getTextures().length} texture(s)
   - Texture Dimensions: ${spectrogram.getTextureWidth()} × ${spectrogram.getTextureHeight()}
   - Write Position: ${spectrogram.getWritePosition()}
@@ -371,9 +450,8 @@ The Accumulator's GPU output buffer contains the processed audio blocks ready fo
 
 The WaveletTransform output buffer contains the Constant-Q Transform magnitudes (frequency-time representation).
 - **Buffer layout**: 2D array [time_frame][frequency_bin]
-- **Dimensions**: ${totalFrames} time frames × ${numBins} frequency bins
-- **Buffer capacity**: ${maxTimeFrames} time frames (maximum storage)
-- **Current data**: ${totalFrames} frames written (${((totalFrames / maxTimeFrames) * 100).toFixed(1)}% of capacity)
+- **Buffer capacity**: ${maxTimeFrames} time frames × ${numBins} frequency bins
+- **Frames written**: ${numBlocks * batchFactor} frames (${((numBlocks * batchFactor / maxTimeFrames) * 100).toFixed(1)}% of capacity)
 - **Frequency range**: ${fMin} Hz - ${fMax} Hz (${binsPerOctave} bins per octave)
 - **Time resolution**: Each frame represents ${hopLength} samples (${(hopLength / sampleRate * 1000).toFixed(2)} ms)
 - **Data format**: Float32 magnitudes (outputs of CQT analysis)
@@ -382,6 +460,24 @@ The WaveletTransform output buffer contains the Constant-Q Transform magnitudes 
   - Y-axis: Frequency bins (low to high, bottom to top)
   - Color: Magnitude (black = low, red/yellow/white = high)
 - The sine sweep with amplitude modulation should appear as a diagonal line with periodic intensity variations
+
+### Spectrogram GPU Texture
+
+![Spectrogram Texture](spectrogram_texture.png)
+
+The Spectrogram GPU texture is the final rendering-ready output that contains the colored frequency data.
+- **Texture format**: RGBA8 (8-bit per channel, normalized)
+- **Texture dimensions**: ${spectrogramWidth} × ${spectrogramHeight} pixels
+- **Texture width**: ${spectrogramWidth} frames (matches CQT buffer capacity)
+- **Texture height**: ${spectrogramHeight} pixels (power-of-2 rounded from ${numBins} bins)
+- **Data source**: Converted from WaveletTransform CQT buffer using compute shader
+- **Colormap**: "Hot" colormap (black → red → yellow → white)
+- **Usage**: This texture is directly bound to the GPU for real-time rendering
+- **Comparison with CQT buffer**:
+  - CQT buffer: Raw Float32 magnitude values in storage buffer
+  - Spectrogram texture: Color-mapped RGBA8 values in texture (ready for rendering)
+  - Both should show the same frequency-time pattern
+  - Texture uses GPU-native format optimized for rendering performance
 
 ## Data Flow Summary
 
@@ -392,7 +488,7 @@ Accumulator (blocks into ${blockSize}-sample chunks)
     ↓
 Output Buffer (${accWriteOffset}/${accOutputBufferSize} samples used)
     ↓
-WaveletTransform (CQT analysis: ${totalFrames} frames × ${numBins} bins)
+WaveletTransform (CQT analysis: ${maxTimeFrames} frames × ${numBins} bins capacity)
     ↓
 Spectrogram (GPU textures for rendering)
 \`\`\`
@@ -402,7 +498,7 @@ Spectrogram (GPU textures for rendering)
 ✅ Test completed successfully
 - Transformer created and configured
 - Audio signal generated and processed
-- ${numBlocks} blocks processed into ${totalFrames} time frames
+- ${numBlocks} blocks processed into ${numBlocks * batchFactor} time frames
 - Accumulator buffer populated with ${accWriteOffset} samples
 - Visualizations generated
 
@@ -427,11 +523,12 @@ Spectrogram (GPU textures for rendering)
   console.log(`✓ Input waveform saved: ${inputWaveformPath}`);
   console.log(`✓ Accumulator buffer saved: ${accBufferPath}`);
   console.log(`✓ CQT buffer saved: ${cqtBufferPath}`);
+  console.log(`✓ Spectrogram texture saved: ${spectrogramTexturePath}`);
 
   // Assertions to verify the test ran correctly
   assert(audioData.length > 0, "Audio data should be generated");
   assert(numBlocks > 0, "Should have processed blocks");
-  assert(totalFrames > 0, "Should have generated time frames");
+  assert(maxTimeFrames > 0, "Should have CQT buffer capacity");
   assert(accWriteOffset > 0, "Accumulator should have written data");
   assert(numBins > 0, "Should have frequency bins");
 
@@ -447,6 +544,9 @@ Spectrogram (GPU textures for rendering)
 
   const cqtStat = await Deno.stat(cqtBufferPath);
   assert(cqtStat.size > 0, "CQT buffer PNG should not be empty");
+
+  const spectrogramStat = await Deno.stat(spectrogramTexturePath);
+  assert(spectrogramStat.size > 0, "Spectrogram texture PNG should not be empty");
 
   // Cleanup
   transformer.destroy();

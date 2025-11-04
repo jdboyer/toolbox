@@ -233,7 +233,8 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   // Calculate output texture position
   let outputX = params.outputStartX + texX;
-  let outputY = texY;
+  // Flip Y coordinate so low frequencies are at bottom (high Y values)
+  let outputY = params.inputNumBins - 1u - texY;
 
   // Write color to output texture
   textureStore(outputTexture, vec2<i32>(i32(outputX), i32(outputY)), color);
