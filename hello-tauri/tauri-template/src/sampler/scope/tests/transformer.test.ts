@@ -261,42 +261,65 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
   // Create Transformer
   const transformer = new Transformer(device, config);
 
-  // Generate test signal: sine sweep with amplitude modulation
-  // The amplitude modulation creates a visible periodic pattern
-  // that makes discontinuities easy to spot
-  const duration = 2.0; // seconds
-  const modulationPeriodSamples = 10000; // Period of amplitude modulation
+  // Generate test signal: 8 seconds of audio with distinct frequency bands over time
+  // This creates a visually distinct pattern across the spectrogram
+  const totalDuration = 8.0; // seconds
+  const totalSamples = Math.floor(totalDuration * sampleRate);
+  const fullAudioData = new Float32Array(totalSamples);
 
-  const audioData = generateSineSweep({
-    startFrequency: 200,
-    endFrequency: 2000,
-    sampleRate,
-    duration,
-    amplitude: 0.8,
-    sweepType: "logarithmic",
-  });
+  // Create a signal with 4 distinct sections (2 seconds each)
+  // Each section sweeps in a different frequency range
+  const sectionDuration = 2.0;
+  const sectionSamples = Math.floor(sectionDuration * sampleRate);
+  const sections = [
+    { start: 200, end: 600, name: "Low" },      // 0-2s: 200-600 Hz
+    { start: 600, end: 1200, name: "Mid-Low" }, // 2-4s: 600-1200 Hz
+    { start: 1200, end: 2000, name: "Mid" },    // 4-6s: 1200-2000 Hz
+    { start: 2000, end: 3500, name: "High" },   // 6-8s: 2000-3500 Hz
+  ];
 
-  // Apply amplitude modulation to make patterns visible
-  for (let i = 0; i < audioData.length; i++) {
-    const modulationPhase = (2 * Math.PI * i) / modulationPeriodSamples;
-    const modulationEnvelope = 0.5 + 0.5 * Math.sin(modulationPhase);
-    audioData[i] *= modulationEnvelope;
+  for (let section = 0; section < sections.length; section++) {
+    const { start: startFreq, end: endFreq } = sections[section];
+    const sectionStart = section * sectionSamples;
+
+    const sectionData = generateSineSweep({
+      startFrequency: startFreq,
+      endFrequency: endFreq,
+      sampleRate,
+      duration: sectionDuration,
+      amplitude: 0.7,
+      sweepType: "logarithmic",
+    });
+
+    // Apply amplitude modulation with slower period for visibility
+    const modulationPeriodSamples = 20000; // ~0.42 second period at 48kHz
+    for (let i = 0; i < sectionData.length; i++) {
+      const globalIdx = sectionStart + i;
+      const modulationPhase = (2 * Math.PI * globalIdx) / modulationPeriodSamples;
+      const modulationEnvelope = 0.6 + 0.4 * Math.sin(modulationPhase);
+      fullAudioData[sectionStart + i] = sectionData[i] * modulationEnvelope;
+    }
   }
 
-  // Process audio through transformer
-  transformer.addSamples(audioData);
+  // Split the data: process first ~2 seconds initially, then stream the rest
+  const initialSamples = 96000; // 2 seconds at 48kHz
+  const audioDataPart1 = fullAudioData.slice(0, initialSamples);
+  const audioDataPart2 = fullAudioData.slice(initialSamples);
+
+  // Process first part through transformer
+  transformer.addSamples(audioDataPart1);
 
   // Get components for inspection
   const accumulator = transformer.getAccumulator();
   const waveletTransform = transformer.getWaveletTransform();
   const spectrogram = transformer.getSpectrogram();
 
-  // Read configuration and buffer information
+  // Read configuration and buffer information (after first part)
   const transformerConfig = transformer.getConfig();
   const numBins = waveletTransform.getNumBins();
   const batchFactor = waveletTransform.getBatchFactor();
   const hopLength = waveletTransform.getHopLength();
-  const numBlocks = Math.floor(audioData.length / blockSize);
+  const numBlocksPart1 = Math.floor(audioDataPart1.length / blockSize);
 
   // Accumulator information
   const accOutputBufferSize = accumulator.getOutputBufferSize();
@@ -307,28 +330,18 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
   const overlapRegionBlocks = accumulator.getOverlapRegionBlocks();
   const overlapSamples = overlapRegionBlocks * blockSize;
 
-  // Read the Accumulator output buffer
+  // Get buffer references (will read data later after all audio is processed)
   const accBuffer = accumulator.getOutputBuffer();
-  const accBufferData = await readGPUBuffer(
-    device,
-    accBuffer,
-    accOutputBufferSize * 4 // Float32 = 4 bytes
-  );
-
-  // Read the WaveletTransform output buffer (CQT magnitudes)
   const cqtBuffer = waveletTransform.getOutputBuffer();
   const maxTimeFrames = waveletTransform.getMaxTimeFrames();
   const cqtBufferSize = maxTimeFrames * numBins * 4; // Float32 = 4 bytes
-  const cqtData = await readGPUBuffer(device, cqtBuffer, cqtBufferSize);
 
-  // Debug: Log buffer dimensions
-  console.log(`\nCQT Buffer Info:`);
-  console.log(`  Audio length: ${audioData.length} samples`);
+  // Debug: Log buffer dimensions after first part
+  console.log(`\n=== After Part 1 (${audioDataPart1.length} samples) ===`);
   console.log(`  Block size: ${blockSize} samples`);
-  console.log(`  Num blocks processed: ${numBlocks}`);
+  console.log(`  Num blocks processed: ${numBlocksPart1}`);
   console.log(`  Batch factor: ${batchFactor} frames/block`);
   console.log(`  Max time frames (buffer capacity): ${maxTimeFrames}`);
-  console.log(`  CQT data buffer size: ${cqtData.length} floats = ${maxTimeFrames} × ${numBins}`);
 
   // Create output directory
   const outputDir = "src/sampler/scope/tests/output";
@@ -338,31 +351,51 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
     // Directory might already exist
   }
 
-  // Save visualizations with proportional widths
-  // Calculate width ratio: input signal vs accumulator buffer
-  const baseHeight = 200;
-  const pixelsPerSample = 0.01; // Scale factor for visualization
+  // Save first spectrogram texture capture
+  const spectrogramTexture1Path = `${outputDir}/spectrogram_texture_part1.png`;
+  const spectrogramTexture1 = spectrogram.getTexture();
+  const spectrogramWidth = spectrogram.getTextureWidth();
+  const spectrogramHeight = spectrogram.getTextureHeight();
+  await saveTextureAsPNG(device, spectrogramTexture1, spectrogramWidth, spectrogramHeight, spectrogramTexture1Path);
+  console.log(`✓ Spectrogram texture (part 1) saved: ${spectrogramTexture1Path}`);
 
-  const inputWidth = Math.max(400, Math.floor(audioData.length * pixelsPerSample));
+  // Now stream the remaining audio (parts 2-4, approximately 6 more seconds)
+  console.log(`\n=== Streaming Part 2 (${audioDataPart2.length} samples) ===`);
+  transformer.addSamples(audioDataPart2);
+
+  const numBlocksTotal = Math.floor(fullAudioData.length / blockSize);
+  console.log(`  Total blocks processed: ${numBlocksTotal}`);
+  console.log(`  Total audio duration: ${totalDuration} seconds`);
+
+  // Save second spectrogram texture capture (after full 8 seconds)
+  const spectrogramTexture2Path = `${outputDir}/spectrogram_texture_part2.png`;
+  const spectrogramTexture2 = spectrogram.getTexture();
+  await saveTextureAsPNG(device, spectrogramTexture2, spectrogramWidth, spectrogramHeight, spectrogramTexture2Path);
+  console.log(`✓ Spectrogram texture (part 2) saved: ${spectrogramTexture2Path}`);
+
+  // Read buffers for visualization after all audio is processed
+  const accWriteOffsetFinal = accumulator.getOutputBufferWriteOffset();
+  const accBufferData = await readGPUBuffer(
+    device,
+    accBuffer,
+    accOutputBufferSize * 4
+  );
+  const cqtData = await readGPUBuffer(device, cqtBuffer, cqtBufferSize);
+
+  // Save visualizations
+  const baseHeight = 200;
+  const pixelsPerSample = 0.01;
+
+  const inputWidth = Math.max(400, Math.floor(fullAudioData.length * pixelsPerSample));
   const accBufferWidth = Math.max(400, Math.floor(accOutputBufferSize * pixelsPerSample));
 
   const inputWaveformPath = `${outputDir}/input_waveform.png`;
   const accBufferPath = `${outputDir}/accumulator_buffer.png`;
   const cqtBufferPath = `${outputDir}/cqt_buffer.png`;
-  const spectrogramTexturePath = `${outputDir}/spectrogram_texture.png`;
 
-  await saveWaveformAsPNG(audioData, inputWaveformPath, inputWidth, baseHeight);
-  await saveAccumulatorBufferAsPNG(accBufferData, accBufferPath, accBufferWidth, baseHeight, overlapSamples, accWriteOffset);
-
-  // Save CQT buffer - visualize the frequency-time representation
-  // Width = buffer capacity (maxTimeFrames), Height = frequency bins
+  await saveWaveformAsPNG(fullAudioData, inputWaveformPath, inputWidth, baseHeight);
+  await saveAccumulatorBufferAsPNG(accBufferData, accBufferPath, accBufferWidth, baseHeight, overlapSamples, accWriteOffsetFinal);
   await saveCQTAsPNG(cqtData, maxTimeFrames, numBins, cqtBufferPath);
-
-  // Save Spectrogram texture - the actual GPU texture used for rendering
-  const spectrogramTexture = spectrogram.getTexture();
-  const spectrogramWidth = spectrogram.getTextureWidth();
-  const spectrogramHeight = spectrogram.getTextureHeight();
-  await saveTextureAsPNG(device, spectrogramTexture, spectrogramWidth, spectrogramHeight, spectrogramTexturePath);
 
   // Generate markdown report
   const markdownPath = `${outputDir}/transformer_verification.md`;
@@ -384,30 +417,35 @@ Generated: ${new Date().toISOString()}
 - **Total Frequency Bins**: ${numBins}
 
 ### Test Signal
-- **Type**: Logarithmic sine sweep with amplitude modulation
-- **Frequency Range**: 200 Hz - 2000 Hz
-- **Amplitude Modulation**: Sine wave with ${modulationPeriodSamples} sample period (~${(modulationPeriodSamples / sampleRate * 1000).toFixed(1)} ms)
-- **Duration**: ${duration} seconds
-- **Total Samples**: ${audioData.length}
+- **Type**: Multi-section frequency sweeps with amplitude modulation
+- **Signal Structure**: 4 sections of 2 seconds each covering different frequency bands
+  - Section 1 (0-2s): 200-600 Hz sweep
+  - Section 2 (2-4s): 600-1200 Hz sweep
+  - Section 3 (4-6s): 1200-2000 Hz sweep
+  - Section 4 (6-8s): 2000-3500 Hz sweep
+- **Amplitude Modulation**: Sine wave with ~0.42 second period for visibility
+- **Total Duration**: ${totalDuration} seconds
+- **Total Samples**: ${fullAudioData.length}
+- **Streaming**: Processed in 2 parts (${audioDataPart1.length} + ${audioDataPart2.length} samples)
 
 ## Processing Statistics
 
 ### Input Processing
-- **Number of Blocks Processed**: ${numBlocks}
-- **Time Frames Generated**: ${numBlocks * batchFactor}
+- **Number of Blocks Processed**: ${numBlocksTotal}
+- **Time Frames Generated**: ${numBlocksTotal * batchFactor}
 - **Samples per Block**: ${blockSize}
 - **Frames per Block**: ${batchFactor}
 
 ### Accumulator Output Buffer
 - **Buffer Capacity**: ${accOutputBufferSize} samples
-- **Current Write Offset**: ${accWriteOffset} samples
-- **Buffer Utilization**: ${((accWriteOffset / accOutputBufferSize) * 100).toFixed(1)}%
+- **Current Write Offset**: ${accWriteOffsetFinal} samples
+- **Buffer Utilization**: ${((accWriteOffsetFinal / accOutputBufferSize) * 100).toFixed(1)}%
 - **Wrap-Around Overlap Size**: ${overlapSamples} samples (${overlapRegionBlocks} blocks)
   - This is the amount of previous data copied when buffer wraps around
   - Ensures sufficient context for CQT analysis of lowest frequencies
 
 ### Buffer Dimensions
-- **Accumulator Output**: ${accWriteOffset} samples (1D buffer)
+- **Accumulator Output**: ${accWriteOffsetFinal} samples (1D buffer)
 - **WaveletTransform Output**: ${maxTimeFrames} frames × ${numBins} bins (buffer capacity)
 - **Spectrogram Texture**: ${spectrogram.getTextureWidth()} × ${spectrogram.getTextureHeight()} pixels
   - Write Position: ${spectrogram.getWritePosition()} frames
@@ -418,11 +456,11 @@ Generated: ${new Date().toISOString()}
 
 ![Input Waveform](input_waveform.png)
 
-The input signal is a logarithmic sine sweep from 200 Hz to 2000 Hz with amplitude modulation.
-- Total duration: ${duration} seconds
-- Total samples: ${audioData.length}
-- Amplitude modulation period: ${modulationPeriodSamples} samples (~${(modulationPeriodSamples / sampleRate * 1000).toFixed(1)} ms)
-- The modulation creates visible periodic patterns to help identify any discontinuities
+The input signal consists of 4 distinct frequency sweep sections covering the full frequency range.
+- Total duration: ${totalDuration} seconds
+- Total samples: ${fullAudioData.length}
+- Each section: 2 seconds with logarithmic frequency sweep
+- Amplitude modulation creates visible periodic patterns to verify continuity
 - Image dimensions: ${inputWidth}×${baseHeight} pixels
 
 ### Accumulator Output Buffer
@@ -431,8 +469,8 @@ The input signal is a logarithmic sine sweep from 200 Hz to 2000 Hz with amplitu
 
 The Accumulator's GPU output buffer contains the processed audio blocks ready for transformation.
 - Buffer capacity: ${accOutputBufferSize} samples
-- Write offset indicates how much data has been accumulated: ${accWriteOffset} samples
-- Buffer utilization: ${((accWriteOffset / accOutputBufferSize) * 100).toFixed(1)}%
+- Write offset indicates how much data has been accumulated: ${accWriteOffsetFinal} samples
+- Buffer utilization: ${((accWriteOffsetFinal / accOutputBufferSize) * 100).toFixed(1)}%
 - Blue waveform represents the buffered audio data
 - **Yellow overlay**: Shows the overlap/backfill region (${overlapSamples} samples)
   - When the buffer wraps around, this region is copied from the end of the previous buffer
@@ -450,7 +488,7 @@ The Accumulator's GPU output buffer contains the processed audio blocks ready fo
 The WaveletTransform output buffer contains the Constant-Q Transform magnitudes (frequency-time representation).
 - **Buffer layout**: 2D array [time_frame][frequency_bin]
 - **Buffer capacity**: ${maxTimeFrames} time frames × ${numBins} frequency bins
-- **Frames written**: ${numBlocks * batchFactor} frames (${((numBlocks * batchFactor / maxTimeFrames) * 100).toFixed(1)}% of capacity)
+- **Frames written**: ${numBlocksTotal * batchFactor} frames (${((numBlocksTotal * batchFactor / maxTimeFrames) * 100).toFixed(1)}% of capacity)
 - **Frequency range**: ${fMin} Hz - ${fMax} Hz (${binsPerOctave} bins per octave)
 - **Time resolution**: Each frame represents ${hopLength} samples (${(hopLength / sampleRate * 1000).toFixed(2)} ms)
 - **Data format**: Float32 magnitudes (outputs of CQT analysis)
@@ -458,11 +496,12 @@ The WaveletTransform output buffer contains the Constant-Q Transform magnitudes 
   - X-axis: Time frames (left to right)
   - Y-axis: Frequency bins (low to high, bottom to top)
   - Color: Magnitude (black = low, red/yellow/white = high)
-- The sine sweep with amplitude modulation should appear as a diagonal line with periodic intensity variations
+- The frequency sweeps create distinct horizontal bands at different times, showing the 4-section structure
 
-### Spectrogram GPU Texture
+### Spectrogram GPU Textures (2 Captures)
 
-![Spectrogram Texture](spectrogram_texture.png)
+![Spectrogram Texture Part 1](spectrogram_texture_part1.png)
+![Spectrogram Texture Part 2](spectrogram_texture_part2.png)
 
 The Spectrogram GPU texture is the final rendering-ready output that contains the colored frequency data.
 - **Texture format**: RGBA8 (8-bit per channel, normalized)
@@ -482,11 +521,11 @@ The Spectrogram GPU texture is the final rendering-ready output that contains th
 ## Data Flow Summary
 
 \`\`\`
-Input Audio (${audioData.length} samples)
+Input Audio (${fullAudioData.length} samples, 8 seconds)
     ↓
 Accumulator (blocks into ${blockSize}-sample chunks)
     ↓
-Output Buffer (${accWriteOffset}/${accOutputBufferSize} samples used)
+Output Buffer (${accWriteOffsetFinal}/${accOutputBufferSize} samples used)
     ↓
 WaveletTransform (CQT analysis: ${maxTimeFrames} frames × ${numBins} bins capacity)
     ↓
@@ -497,9 +536,11 @@ Spectrogram (GPU textures for rendering)
 
 ✅ Test completed successfully
 - Transformer created and configured
-- Audio signal generated and processed
-- ${numBlocks} blocks processed into ${numBlocks * batchFactor} time frames
-- Accumulator buffer populated with ${accWriteOffset} samples
+- Audio signal generated (8 seconds, 4 frequency sections)
+- Processed in 2 streaming parts: ${audioDataPart1.length} + ${audioDataPart2.length} samples
+- ${numBlocksTotal} blocks processed into ${numBlocksTotal * batchFactor} time frames
+- Accumulator buffer populated with ${accWriteOffsetFinal} samples
+- Spectrogram textures captured at 2 points in time
 - Visualizations generated
 
 ## Notes
@@ -507,14 +548,19 @@ Spectrogram (GPU textures for rendering)
 - The Accumulator's output buffer acts as a ring buffer with capacity for ${accOutputBufferSize} samples
 - Each block of ${blockSize} samples generates ${batchFactor} time frames in the frequency domain
 - The WaveletTransform (CQT) analyzes ${numBins} frequency bins ranging from ${fMin} Hz to ${fMax} Hz
-- Spectrogram textures store the colored frequency data for GPU rendering
+- Spectrogram texture (2048 frames) accumulates longer history than CQT buffer (${maxTimeFrames} frames)
+- Test demonstrates streaming capability by processing audio in 2 parts
 
 ### Image Scaling
 - Image widths are **proportionally scaled** to represent actual sample counts
-- Input waveform: ${audioData.length} samples → ${inputWidth}px width
+- Input waveform: ${fullAudioData.length} samples → ${inputWidth}px width
 - Accumulator buffer: ${accOutputBufferSize} samples → ${accBufferWidth}px width
 - Scale factor: ${pixelsPerSample} pixels per sample
 - This allows visual comparison of relative buffer sizes
+
+### Spectrogram Texture Captures
+- **Part 1** (after 2 seconds): ![Texture 1](spectrogram_texture_part1.png)
+- **Part 2** (after 8 seconds): ![Texture 2](spectrogram_texture_part2.png)
 `;
 
   await Deno.writeTextFile(markdownPath, markdown);
@@ -523,13 +569,12 @@ Spectrogram (GPU textures for rendering)
   console.log(`✓ Input waveform saved: ${inputWaveformPath}`);
   console.log(`✓ Accumulator buffer saved: ${accBufferPath}`);
   console.log(`✓ CQT buffer saved: ${cqtBufferPath}`);
-  console.log(`✓ Spectrogram texture saved: ${spectrogramTexturePath}`);
 
   // Assertions to verify the test ran correctly
-  assert(audioData.length > 0, "Audio data should be generated");
-  assert(numBlocks > 0, "Should have processed blocks");
+  assert(fullAudioData.length > 0, "Audio data should be generated");
+  assert(numBlocksTotal > 0, "Should have processed blocks");
   assert(maxTimeFrames > 0, "Should have CQT buffer capacity");
-  assert(accWriteOffset > 0, "Accumulator should have written data");
+  assert(accWriteOffsetFinal > 0, "Accumulator should have written data");
   assert(numBins > 0, "Should have frequency bins");
 
   // Verify files were created
@@ -545,8 +590,11 @@ Spectrogram (GPU textures for rendering)
   const cqtStat = await Deno.stat(cqtBufferPath);
   assert(cqtStat.size > 0, "CQT buffer PNG should not be empty");
 
-  const spectrogramStat = await Deno.stat(spectrogramTexturePath);
-  assert(spectrogramStat.size > 0, "Spectrogram texture PNG should not be empty");
+  const spectrogramStat1 = await Deno.stat(spectrogramTexture1Path);
+  assert(spectrogramStat1.size > 0, "Spectrogram texture part 1 PNG should not be empty");
+
+  const spectrogramStat2 = await Deno.stat(spectrogramTexture2Path);
+  assert(spectrogramStat2.size > 0, "Spectrogram texture part 2 PNG should not be empty");
 
   // Cleanup
   transformer.destroy();
