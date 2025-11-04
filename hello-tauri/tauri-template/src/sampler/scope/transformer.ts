@@ -122,10 +122,12 @@ export class Transformer {
     this.spectrogram = new Spectrogram(this.device, spectrogramConfig);
 
     // Configure the spectrogram with the CQT output buffer
+    // Texture width is 2048 frames to accumulate a longer timespan
     this.spectrogram.configure(
       this.waveletTransform.getOutputBuffer(),
       this.waveletTransform.getNumBins(),
-      this.waveletTransform.getMaxTimeFrames()
+      this.waveletTransform.getMaxTimeFrames(),
+      2048 // Spectrogram texture width
     );
   }
 

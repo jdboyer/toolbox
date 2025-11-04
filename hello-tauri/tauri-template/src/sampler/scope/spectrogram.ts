@@ -224,21 +224,23 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
    * @param inputBuffer GPU buffer containing CQT data (2D: [time][frequency])
    * @param numBins Number of frequency bins in the input buffer
    * @param maxFrames Maximum number of time frames in the input buffer
+   * @param textureWidth Width of the spectrogram texture (optional, defaults to maxFrames)
    */
   configure(
     inputBuffer: GPUBuffer,
     numBins: number,
-    maxFrames: number
+    maxFrames: number,
+    textureWidth?: number
   ): void {
     if (!this.pipeline || !this.bindGroupLayout) {
       throw new Error("Spectrogram not properly initialized");
     }
 
-    // Set texture width to match input buffer size
-    this.textureWidth = maxFrames;
+    // Set texture width (use provided width or default to input buffer size)
+    this.textureWidth = textureWidth ?? maxFrames;
     this.textureHeight = nextPowerOf2(numBins);
 
-    console.log(`Spectrogram.configure: Creating texture with width=${this.textureWidth} to match input maxFrames=${maxFrames}`);
+    console.log(`Spectrogram.configure: Creating texture ${this.textureWidth}x${this.textureHeight} (input buffer: ${maxFrames} frames)`);
 
     // Create or recreate texture with correct dimensions
     if (this.texture) {

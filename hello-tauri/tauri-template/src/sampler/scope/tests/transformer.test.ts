@@ -467,16 +467,17 @@ The WaveletTransform output buffer contains the Constant-Q Transform magnitudes 
 The Spectrogram GPU texture is the final rendering-ready output that contains the colored frequency data.
 - **Texture format**: RGBA8 (8-bit per channel, normalized)
 - **Texture dimensions**: ${spectrogramWidth} × ${spectrogramHeight} pixels
-- **Texture width**: ${spectrogramWidth} frames (matches CQT buffer capacity)
+- **Texture width**: ${spectrogramWidth} frames (ring buffer for accumulating history)
 - **Texture height**: ${spectrogramHeight} pixels (power-of-2 rounded from ${numBins} bins)
+- **CQT input buffer**: ${maxTimeFrames} frames (smaller than texture for efficient ring buffer)
 - **Data source**: Converted from WaveletTransform CQT buffer using compute shader
 - **Colormap**: "Hot" colormap (black → red → yellow → white)
 - **Usage**: This texture is directly bound to the GPU for real-time rendering
-- **Comparison with CQT buffer**:
-  - CQT buffer: Raw Float32 magnitude values in storage buffer
-  - Spectrogram texture: Color-mapped RGBA8 values in texture (ready for rendering)
-  - Both should show the same frequency-time pattern
-  - Texture uses GPU-native format optimized for rendering performance
+- **Ring buffer behavior**:
+  - Texture accumulates data over time, wrapping around when full
+  - Larger than CQT buffer to hold longer time history
+  - CQT buffer feeds data incrementally into the texture
+  - Texture uses GPU-native RGBA8 format optimized for rendering
 
 ## Data Flow Summary
 
