@@ -10,7 +10,6 @@ interface AllSettings {
     blockSize: number;
     maxBlocks: number;
     outputBufferSize: number;
-    outputBufferWriteOffset: number;
   };
   waveletTransform: {
     numBins: number;
@@ -18,15 +17,11 @@ interface AllSettings {
     batchFactor: number;
     blockSize: number;
     maxTimeFrames: number;
-    writePosition: number;
     minWindowSize: number;
   };
   spectrogram: {
     textureWidth: number;
     textureHeight: number;
-    writePosition: number;
-    framesWritten: number;
-    totalCapacity: number;
   };
 }
 
@@ -35,14 +30,15 @@ interface SettingRowProps {
   label: string;
   value: string | number;
   isLinked?: boolean; // true = linked (blue), false = not linked (red), undefined = no icon
+  calculated?: boolean; // true = calculated/read-only setting (grayed out)
 }
 
-function SettingRow({ label, value, isLinked }: SettingRowProps) {
+function SettingRow({ label, value, isLinked, calculated = false }: SettingRowProps) {
   return (
     <Table.Tr>
       <Table.Td>
         <Group gap={4} wrap="nowrap">
-          <Text size="xs">{label}</Text>
+          <Text size="xs" c={calculated ? "dimmed" : undefined}>{label}</Text>
           {isLinked !== undefined && (
             isLinked ? (
               <IconLink size={12} color="var(--mantine-color-blue-6)" />
@@ -53,7 +49,7 @@ function SettingRow({ label, value, isLinked }: SettingRowProps) {
         </Group>
       </Table.Td>
       <Table.Td>
-        <Text size="xs">{value}</Text>
+        <Text size="xs" c={calculated ? "dimmed" : undefined}>{value}</Text>
       </Table.Td>
     </Table.Tr>
   );
@@ -79,7 +75,6 @@ export function AirwaveSettings() {
               blockSize: accumulator.getBlockSize(),
               maxBlocks: accumulator.getMaxBlocks(),
               outputBufferSize: accumulator.getOutputBufferSize(),
-              outputBufferWriteOffset: accumulator.getOutputBufferWriteOffset(),
             },
             waveletTransform: {
               numBins: waveletTransform.getNumBins(),
@@ -87,15 +82,11 @@ export function AirwaveSettings() {
               batchFactor: waveletTransform.getBatchFactor(),
               blockSize: waveletTransform.getBlockSize(),
               maxTimeFrames: waveletTransform.getMaxTimeFrames(),
-              writePosition: waveletTransform.getWritePosition(),
               minWindowSize: waveletTransform.getMinWindowSize(),
             },
             spectrogram: {
               textureWidth: spectrogram.getTextureWidth(),
               textureHeight: spectrogram.getTextureHeight(),
-              writePosition: spectrogram.getWritePosition(),
-              framesWritten: spectrogram.getFramesWritten(),
-              totalCapacity: spectrogram.getTotalCapacity(),
             },
           };
 
@@ -227,10 +218,6 @@ export function AirwaveSettings() {
                 label="Output Buffer Size"
                 value={settings.accumulator.outputBufferSize}
               />
-              <SettingRow
-                label="Write Offset"
-                value={settings.accumulator.outputBufferWriteOffset}
-              />
             </Table.Tbody>
           </Table>
         </div>
@@ -249,6 +236,7 @@ export function AirwaveSettings() {
               <SettingRow
                 label="Hop Length"
                 value={settings.waveletTransform.hopLength}
+                calculated
               />
               <SettingRow
                 label="Batch Factor"
@@ -262,14 +250,12 @@ export function AirwaveSettings() {
               <SettingRow
                 label="Max Time Frames"
                 value={settings.waveletTransform.maxTimeFrames}
-              />
-              <SettingRow
-                label="Write Position"
-                value={settings.waveletTransform.writePosition}
+                calculated
               />
               <SettingRow
                 label="Min Window Size"
                 value={settings.waveletTransform.minWindowSize}
+                calculated
               />
             </Table.Tbody>
           </Table>
@@ -289,18 +275,6 @@ export function AirwaveSettings() {
               <SettingRow
                 label="Texture Height"
                 value={settings.spectrogram.textureHeight}
-              />
-              <SettingRow
-                label="Write Position"
-                value={settings.spectrogram.writePosition}
-              />
-              <SettingRow
-                label="Frames Written"
-                value={settings.spectrogram.framesWritten}
-              />
-              <SettingRow
-                label="Total Capacity"
-                value={settings.spectrogram.totalCapacity}
               />
             </Table.Tbody>
           </Table>
