@@ -1,4 +1,5 @@
 import { RingBuffer } from "./ring-buffer.ts";
+import { Decimator, DecimatorConfig } from "./decimator.ts";
 
 /**
  * Callback function invoked when a block is prepared and ready for processing
@@ -31,6 +32,9 @@ export class Accumulator {
 
   private unprocessedBlocks: number = 0;
 
+  // Decimator for multi-band processing
+  private decimator: Decimator;
+
   // Callback for processing blocks
   private processCallback?: ProcessCallback;
 
@@ -61,6 +65,9 @@ export class Accumulator {
       size: this.OUTPUT_BUFFER_SIZE * 4, // Float32 = 4 bytes
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
+
+    // Initialize decimator with default configuration
+    this.decimator = new Decimator({ numBands: 1 });
   }
 
   /**
@@ -295,6 +302,22 @@ export class Accumulator {
       size,
       usage: GPUBufferUsage.STORAGE | usage,
     });
+  }
+
+  /**
+   * Get the decimator instance
+   * @returns Decimator instance owned by this accumulator
+   */
+  getDecimator(): Decimator {
+    return this.decimator;
+  }
+
+  /**
+   * Configure the decimator
+   * @param config New decimator configuration
+   */
+  configureDecimator(config: DecimatorConfig): void {
+    this.decimator.configure(config);
   }
 
   /**
