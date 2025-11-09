@@ -110,7 +110,7 @@ export class Transformer {
       this.device,
       this.config.blockSize,
       this.config.maxBlocks,
-      this.waveletTransform.getMinWindowSize(),
+      this.config.binsPerOctave,
       this.config.sampleRate,
       this.config.fMin,
       this.config.fMax,

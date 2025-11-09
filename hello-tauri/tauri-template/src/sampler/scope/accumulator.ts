@@ -1,5 +1,6 @@
 import { RingBuffer } from "./ring-buffer.ts";
 import { Decimator, DecimatorConfig } from "./decimator.ts";
+import { frequencyToNote } from "./note-utils.ts"
 
 /**
  * Callback function invoked when a block is prepared and ready for processing
@@ -30,6 +31,7 @@ export class Accumulator {
   private lastPreparedBlockIndex: number = -1;
   private fMin: number;
   private sampleRate: number;
+  private binsPerOctave: number;
   //private waveletWindowSize: number = 1;
 
   private unprocessedBlocks: number = 0;
@@ -51,13 +53,14 @@ export class Accumulator {
    * @param fMax Maximum frequency for decimator (Hz)
    * @param processCallback Optional callback invoked when a block is prepared
    */
-  constructor(device: GPUDevice, blockSize: number, maxBlocks: number, minWindowSize: number, sampleRate: number, fMin: number, fMax: number, processCallback?: ProcessCallback) {
+  constructor(device: GPUDevice, blockSize: number, maxBlocks: number, binsPerOctave: number, sampleRate: number, fMin: number, fMax: number, processCallback?: ProcessCallback) {
     this.device = device;
     this.blockSize = blockSize;
     this.maxBlocks = maxBlocks;
-    this.minWindowSize = minWindowSize;
+    this.minWindowSize = 0;
     this.fMin = fMin;
     this.sampleRate = sampleRate;
+    this.binsPerOctave = binsPerOctave;
     this.processCallback = processCallback;
 
     // Create ring buffer for input samples
@@ -81,6 +84,7 @@ export class Accumulator {
       sampleRate,
       maxBlockSize: blockSize,
     });
+    this.minWindowSize = this.calculateMaxKernalSize();
   }
 
   /**
@@ -344,18 +348,41 @@ export class Accumulator {
     const bandsInfo = this.decimator.getBandsInfo();
     let maxKernalSize = 1;
 
-    const fMax = this.sampleRate / 2;
+    //const fNyquist = this.sampleRate / 2;
+    const fMax = 20000.0;
     const fMin = this.fMin;
 
-    for (let i = bandsInfo.length - 1; i >= 0; i--) {
-      // start at lowest band, assign kernals, 
+    //const logFMin = Math.log2(fMin);
+    //const logFNyquest = Math.log2(fNyquist);
 
-      const Q = 1 / (Math.pow(2, 1 / this.config.binsPerOctave) - 1);
-      const frequency = this.config.fMin; // * Math.pow(2, k / this.config.binsPerOctave);
-      const windowLength = Math.ceil((Q * this.config.sampleRate) / frequency);
+    const octaveCount = Math.log2(fMax / fMin);
+    const kernalCount = Math.floor(octaveCount * this.binsPerOctave);
 
+
+    let currentBandIndex = bandsInfo.length - 1; // start at the lowest band
+
+    for (let k = 0; k < kernalCount; k++) {
+      const frequency = fMin * Math.pow(2, k / this.binsPerOctave);
+      // Determine which band to assign this kernal to
+      // Is this kernal below the cutoff frequency?
+      // Assume we'll advance one band at a time
+      while (currentBandIndex >= 0 && frequency * 1.1 > bandsInfo[currentBandIndex].cutoffFrequency) 
+      {
+        currentBandIndex -= 1;
+      }
+      // non-decimated band
+      let bandSampleRate = this.sampleRate;
+      if (currentBandIndex >= 0) {
+        // decimated band
+        bandSampleRate = bandsInfo[currentBandIndex].effectiveSampleRate;
+      }
+      const Q = 1 / (Math.pow(2, 1 / this.binsPerOctave) - 1);
+      //const frequency = this.config.fMin; // * Math.pow(2, k / this.config.binsPerOctave);
+      const windowLength = Math.ceil((Q * bandSampleRate) / frequency);
+      maxKernalSize = Math.max(maxKernalSize, windowLength);
     }
-    return windowLength;
+
+    return maxKernalSize;
     //for (let k = 0; k < this.numBins; k++) {
     // Calculate center frequency for this bin
     // Calculate window length based on Q factor
