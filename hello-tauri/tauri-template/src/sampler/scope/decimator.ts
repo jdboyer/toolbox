@@ -8,6 +8,13 @@ export interface DecimatorConfig {
   numBands: number;
 }
 
+interface DecimatorBand 
+{
+  cutoffFrequency: number;
+
+
+}
+
 /**
  * Decimator - Processes audio sample blocks for multi-band analysis
  *
@@ -17,6 +24,9 @@ export interface DecimatorConfig {
  */
 export class Decimator {
   private config: DecimatorConfig;
+  private fMin: number = 60.0;
+  private fMax: number = 20000.0;
+  private bands: DecimatorBand[];
 
   /**
    * Create a Decimator instance
@@ -24,6 +34,7 @@ export class Decimator {
    */
   constructor(config: DecimatorConfig) {
     this.config = config;
+    this.bands = [];
   }
 
   /**

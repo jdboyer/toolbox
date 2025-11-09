@@ -59,7 +59,9 @@
       "Bash(deno check src/sampler/scope/analyzer.ts)",
       "Bash(deno check src/sidebar/AirwaveSettings.tsx)",
       "Bash(deno check src/sampler/scope/accumulator.ts src/sidebar/AirwaveSettings.tsx)",
-      "Bash(deno check src/sampler/scope/tests/transformer.test.ts)"
+      "Bash(deno check src/sampler/scope/tests/transformer.test.ts)",
+      "Bash(deno check c:Usersjaredtoolboxhello-tauritauri-templatesrcsamplerscopedecimator.ts)",
+      "Bash(deno check src/sampler/scope/decimator.ts)"
     ],
     "deny": [],
     "ask": []
