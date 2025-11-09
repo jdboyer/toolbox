@@ -28,6 +28,8 @@ export class Accumulator {
   private readonly OUTPUT_BUFFER_SIZE = 4096 * 16; // samples
   private minWindowSize: number;
   private lastPreparedBlockIndex: number = -1;
+  private fMin: number;
+  private sampleRate: number;
   //private waveletWindowSize: number = 1;
 
   private unprocessedBlocks: number = 0;
@@ -54,6 +56,8 @@ export class Accumulator {
     this.blockSize = blockSize;
     this.maxBlocks = maxBlocks;
     this.minWindowSize = minWindowSize;
+    this.fMin = fMin;
+    this.sampleRate = sampleRate;
     this.processCallback = processCallback;
 
     // Create ring buffer for input samples
@@ -334,5 +338,29 @@ export class Accumulator {
    */
   destroy(): void {
     this.outputBuffer.destroy();
+  }
+
+  calculateMaxKernalSize(): number {
+    const bandsInfo = this.decimator.getBandsInfo();
+    let maxKernalSize = 1;
+
+    const fMax = this.sampleRate / 2;
+    const fMin = this.fMin;
+
+    for (let i = bandsInfo.length - 1; i >= 0; i--) {
+      // start at lowest band, assign kernals, 
+
+      const Q = 1 / (Math.pow(2, 1 / this.config.binsPerOctave) - 1);
+      const frequency = this.config.fMin; // * Math.pow(2, k / this.config.binsPerOctave);
+      const windowLength = Math.ceil((Q * this.config.sampleRate) / frequency);
+
+    }
+    return windowLength;
+    //for (let k = 0; k < this.numBins; k++) {
+    // Calculate center frequency for this bin
+    // Calculate window length based on Q factor
+    // Make sure window length is reasonable
+    //const clampedLength = Math.min(Math.max(windowLength, 32), 16384);
+    //return clampedLength;
   }
 }

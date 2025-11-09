@@ -119,7 +119,8 @@ export class Decimator {
     // Calculate frequency range on logarithmic scale
     const logFMin = Math.log2(this.config.fMin);
     const logFMax = Math.log2(this.config.fMax);
-    const logStep = (logFMax - logFMin) / this.config.numBands;
+    // the "zero" band will always handle the top portion of the range and is not part of the decimator, so +1 here:
+    const logStep = (logFMax - logFMin) / (this.config.numBands + 1); 
 
     // Create bands with exponentially spaced cutoff frequencies
     for (let i = 0; i < this.config.numBands; i++) {
