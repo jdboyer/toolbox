@@ -158,6 +158,7 @@ export class Transformer {
    * @param samples Float32Array containing audio samples
    */
   addSamples(samples: Float32Array): void {
+    this.accumulator.addSamples(samples);
     const MAX_CHUNK_SIZE = 4096;
     let offset = 0;
 
@@ -165,9 +166,9 @@ export class Transformer {
       const remainingSamples = samples.length - offset;
       const chunkSize = Math.min(MAX_CHUNK_SIZE, remainingSamples);
       const chunk = samples.subarray(offset, offset + chunkSize);
-      this.accumulator.addSamples(chunk);
+      //this.accumulator.addSamples(chunk);
       // Accumulator handles block completion and output buffer preparation
-      const blocksCompleted = 
+      //const blocksCompleted = 
       //this.unprocessedBlocks += blocksCompleted;
 
       // Process transform for each newly completed block

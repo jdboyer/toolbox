@@ -97,14 +97,19 @@ export class Accumulator {
       // Advance the write offset
       const completed = this.inputRingBuffer.advanceWriteOffset(samplesToWrite);
 
-      // Prepare output buffer for each completed block
+      // Prepare output buffer for each completed block (max one block)
       if (completed > 0) {
+
+        if (completed > 1) {
+          console.error("Process 2 blocks at once!")
+        }
         const totalBuffersWritten = this.inputRingBuffer.getTotalBuffersWritten();
         const currentBlockIndex = totalBuffersWritten - 1;
 
         // Prepare all newly completed blocks
         for (let i = this.lastPreparedBlockIndex + 1; i <= currentBlockIndex; i++) {
           this.prepareOutputBuffer(i);
+
         }
 
         this.lastPreparedBlockIndex = currentBlockIndex;
@@ -112,20 +117,21 @@ export class Accumulator {
 
       buffersCompleted += completed;
       samplesWritten += samplesToWrite;
+
+      if (this.processCallback) {
+        this.unprocessedBlocks += completed;
+        const currentWriteOffset = this.getOutputBufferWriteOffset();
+        const blocksRequired = Math.ceil(this.waveletWindowSize / this.blockSize);
+        const blocksToProcess = Math.max(this.unprocessedBlocks - blocksRequired, 0);
+        for (let i = 0; i < blocksToProcess; i++) { // Max one
+          const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i - 1) * this.blockSize;
+            this.processCallback(blockInputOffset);
+          }
+        this.unprocessedBlocks -= blocksToProcess;
+      }
     }
 
     // start here
-    if (this.processCallback) {
-      this.unprocessedBlocks += buffersCompleted;
-      const currentWriteOffset = this.getOutputBufferWriteOffset();
-      const blocksRequired = Math.ceil(this.waveletWindowSize / this.blockSize);
-      const blocksToProcess = Math.max(this.unprocessedBlocks - blocksRequired, 0);
-      for (let i = 0; i < blocksToProcess; i++) {
-        const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i - 1) * this.blockSize;
-          this.processCallback(blockInputOffset);
-        }
-      this.unprocessedBlocks -= blocksToProcess;
-    }
 
     return buffersCompleted;
 
