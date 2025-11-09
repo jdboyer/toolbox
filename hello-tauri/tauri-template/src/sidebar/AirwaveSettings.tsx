@@ -11,7 +11,6 @@ interface AllSettings {
     maxBlocks: number;
     outputBufferSize: number;
     outputBufferWriteOffset: number;
-    overlapRegionBlocks: number;
   };
   waveletTransform: {
     numBins: number;
@@ -81,7 +80,6 @@ export function AirwaveSettings() {
               maxBlocks: accumulator.getMaxBlocks(),
               outputBufferSize: accumulator.getOutputBufferSize(),
               outputBufferWriteOffset: accumulator.getOutputBufferWriteOffset(),
-              overlapRegionBlocks: accumulator.getOverlapRegionBlocks(),
             },
             waveletTransform: {
               numBins: waveletTransform.getNumBins(),
@@ -232,10 +230,6 @@ export function AirwaveSettings() {
               <SettingRow
                 label="Write Offset"
                 value={settings.accumulator.outputBufferWriteOffset}
-              />
-              <SettingRow
-                label="Overlap Blocks"
-                value={settings.accumulator.overlapRegionBlocks}
               />
             </Table.Tbody>
           </Table>

@@ -57,7 +57,9 @@
       "Bash(npx tsc --noEmit)",
       "Bash(deno check src/sampler/scope/ScopeView.tsx src/sampler/scope/analyzer-service.ts)",
       "Bash(deno check src/sampler/scope/analyzer.ts)",
-      "Bash(deno check src/sidebar/AirwaveSettings.tsx)"
+      "Bash(deno check src/sidebar/AirwaveSettings.tsx)",
+      "Bash(deno check src/sampler/scope/accumulator.ts src/sidebar/AirwaveSettings.tsx)",
+      "Bash(deno check src/sampler/scope/tests/transformer.test.ts)"
     ],
     "deny": [],
     "ask": []

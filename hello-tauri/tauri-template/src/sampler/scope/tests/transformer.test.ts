@@ -325,9 +325,11 @@ Deno.test("Transformer - Pipeline Verification with Documentation", async () => 
   const accOutputBufferSize = accumulator.getOutputBufferSize();
   const accWriteOffset = accumulator.getOutputBufferWriteOffset();
 
-  // Get overlap/backfill region size from Accumulator
+  // Calculate overlap/backfill region size
   // This is the number of blocks copied from the previous buffer when wrapping around
-  const overlapRegionBlocks = accumulator.getOverlapRegionBlocks();
+  const minWindowSize = waveletTransform.getMinWindowSize();
+  const blocksNeeded = Math.ceil(minWindowSize / blockSize);
+  const overlapRegionBlocks = blocksNeeded - 1;
   const overlapSamples = overlapRegionBlocks * blockSize;
 
   // Get buffer references (will read data later after all audio is processed)

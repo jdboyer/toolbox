@@ -27,7 +27,6 @@ export class Accumulator {
   private readonly OUTPUT_BUFFER_SIZE = 4096 * 16; // samples
   private minWindowSize: number;
   private lastPreparedBlockIndex: number = -1;
-  private overlapRegionBlocks: number; // Number of blocks copied during wrap-around
   private waveletWindowSize: number = 1;
 
   private unprocessedBlocks: number = 0;
@@ -49,12 +48,6 @@ export class Accumulator {
     this.maxBlocks = maxBlocks;
     this.minWindowSize = minWindowSize;
     this.processCallback = processCallback;
-
-    // Calculate overlap region size (blocks copied during wrap-around)
-    // When wrapping: blocksNeeded = ceil(minWindowSize / blockSize)
-    // Overlap = blocksNeeded - 1 (the current block is added separately)
-    const blocksNeeded = Math.ceil(minWindowSize / blockSize);
-    this.overlapRegionBlocks = blocksNeeded - 1;
 
     // Create ring buffer for input samples
     this.inputRingBuffer = new RingBuffer<Float32Array>(
@@ -289,14 +282,6 @@ export class Accumulator {
    */
   getOutputBufferSize(): number {
     return this.OUTPUT_BUFFER_SIZE;
-  }
-
-  /**
-   * Get the number of blocks in the overlap region
-   * This is the number of previous blocks copied when buffer wraps around
-   */
-  getOverlapRegionBlocks(): number {
-    return this.overlapRegionBlocks;
   }
 
   /**
