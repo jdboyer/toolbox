@@ -28,6 +28,9 @@ export class Accumulator {
   private minWindowSize: number;
   private lastPreparedBlockIndex: number = -1;
   private overlapRegionBlocks: number; // Number of blocks copied during wrap-around
+  private waveletWindowSize: number = 1;
+
+  private unprocessedBlocks: number = 0;
 
   // Callback for processing blocks
   private processCallback?: ProcessCallback;
@@ -111,7 +114,34 @@ export class Accumulator {
       samplesWritten += samplesToWrite;
     }
 
+    // start here
+    if (this.processCallback) {
+      this.unprocessedBlocks += buffersCompleted;
+      const currentWriteOffset = this.getOutputBufferWriteOffset();
+      const blocksRequired = Math.ceil(this.waveletWindowSize / this.blockSize);
+      const blocksToProcess = Math.max(this.unprocessedBlocks - blocksRequired, 0);
+      for (let i = 0; i < blocksToProcess; i++) {
+        const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i - 1) * this.blockSize;
+          this.processCallback(blockInputOffset);
+        }
+      this.unprocessedBlocks -= blocksToProcess;
+    }
+
     return buffersCompleted;
+
+      //const blocksCompleted = this.accumulator.addSamples(chunk);
+
+      // Process transform for each newly completed block
+      // Need to calculate the inputOffset for each block before the accumulator offset changed
+      //const currentWriteOffset = this.accumulator.getOutputBufferWriteOffset();
+      //console.log(currentWriteOffset);
+      //const blocksRequired = Math.ceil(this.waveletTransform.getMinWindowSize() / this.config.blockSize);
+      //const blocksToProcess = Math.max(this.unprocessedBlocks - blocksRequired, 0);
+      //for (let i = 0; i < blocksToProcess; i++) {
+        //const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i - 1) * this.config.blockSize;
+        //this.processTransform(blockInputOffset);
+      //}
+      //this.unprocessedBlocks -= blocksToProcess;
   }
 
   /**
@@ -159,6 +189,8 @@ export class Accumulator {
     //if (this.processCallback) {
       //this.processCallback(inputOffset);
     //}
+
+
   }
 
   /**
@@ -173,6 +205,10 @@ export class Accumulator {
     // Clear the GPU output buffer by writing zeros
     const zeros = new Float32Array(this.OUTPUT_BUFFER_SIZE);
     this.device.queue.writeBuffer(this.outputBuffer, 0, zeros);
+  }
+
+  setMinSamples(n: number): void {
+    this.waveletWindowSize = n;
   }
 
   /**

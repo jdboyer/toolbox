@@ -118,6 +118,8 @@ export class Transformer {
       this.accumulator.getOutputBufferSize()
     );
 
+    this.accumulator.setMinSamples(this.waveletTransform.getMinWindowSize());
+
     // Create spectrogram
     const spectrogramConfig: Partial<SpectrogramConfig> = {
       numBins: this.waveletTransform.getNumBins(),
@@ -163,22 +165,22 @@ export class Transformer {
       const remainingSamples = samples.length - offset;
       const chunkSize = Math.min(MAX_CHUNK_SIZE, remainingSamples);
       const chunk = samples.subarray(offset, offset + chunkSize);
-
+      this.accumulator.addSamples(chunk);
       // Accumulator handles block completion and output buffer preparation
-      const blocksCompleted = this.accumulator.addSamples(chunk);
-      this.unprocessedBlocks += blocksCompleted;
+      const blocksCompleted = 
+      //this.unprocessedBlocks += blocksCompleted;
 
       // Process transform for each newly completed block
       // Need to calculate the inputOffset for each block before the accumulator offset changed
-      const currentWriteOffset = this.accumulator.getOutputBufferWriteOffset();
-      console.log(currentWriteOffset);
-      const blocksRequired = Math.ceil(this.waveletTransform.getMinWindowSize() / this.config.blockSize);
-      const blocksToProcess = Math.max(this.unprocessedBlocks - blocksRequired, 0);
-      for (let i = 0; i < blocksToProcess; i++) {
-        const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i - 1) * this.config.blockSize;
-        this.processTransform(blockInputOffset);
-      }
-      this.unprocessedBlocks -= blocksToProcess;
+      //const currentWriteOffset = this.accumulator.getOutputBufferWriteOffset();
+      //console.log(currentWriteOffset);
+      //const blocksRequired = Math.ceil(this.waveletTransform.getMinWindowSize() / this.config.blockSize);
+      //const blocksToProcess = Math.max(this.unprocessedBlocks - blocksRequired, 0);
+      //for (let i = 0; i < blocksToProcess; i++) {
+        //const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i - 1) * this.config.blockSize;
+        //this.processTransform(blockInputOffset);
+      //}
+      //this.unprocessedBlocks -= blocksToProcess;
       //for (let i = 0; i < blocksCompleted; i++) {
         // Calculate inputOffset for this specific block
         // The blocks are at positions: currentWriteOffset - blocksCompleted*blockSize + i*blockSize
