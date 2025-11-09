@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { ActionIcon, Box, Flex } from "@mantine/core";
-import { IconMenu2, IconPalette } from "@tabler/icons-react";
+import { IconMenu2, IconPalette, IconWaveSine } from "@tabler/icons-react";
 import { GeneralSettings } from "./GeneralSettings";
 import { ColorSettings } from "./ColorSettings";
+import { AirwaveSettings } from "./AirwaveSettings";
 
-type SidebarSection = "general" | "colors" | null;
+type SidebarSection = "general" | "colors" | "airwave" | null;
 
 interface SidebarProps {
   color0?: string;
@@ -56,6 +57,8 @@ export function Sidebar({
             onColor4Change={onColor4Change}
           />
         );
+      case "airwave":
+        return <AirwaveSettings />;
       default:
         return null;
     }
@@ -88,6 +91,14 @@ export function Sidebar({
           onClick={() => handleSectionClick("colors")}
         >
           <IconPalette size={18} />
+        </ActionIcon>
+        <ActionIcon
+          variant={activeSection === "airwave" ? "filled" : "subtle"}
+          color={activeSection === "airwave" ? undefined : "gray"}
+          size="lg"
+          onClick={() => handleSectionClick("airwave")}
+        >
+          <IconWaveSine size={18} />
         </ActionIcon>
       </Box>
 
