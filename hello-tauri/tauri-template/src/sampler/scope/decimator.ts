@@ -6,6 +6,22 @@ export interface DecimatorConfig {
    * Number of frequency bands to process
    */
   numBands: number;
+  /**
+   * Minimum frequency for band calculation (Hz)
+   */
+  fMin: number;
+  /**
+   * Maximum frequency for band calculation (Hz)
+   */
+  fMax: number;
+  /**
+   * Sample rate (Hz)
+   */
+  sampleRate: number;
+  /**
+   * Maximum block size in samples
+   */
+  maxBlockSize: number;
 }
 
 /**
@@ -68,11 +84,7 @@ interface BiquadSection {
  */
 export class Decimator {
   private config: DecimatorConfig;
-  private fMin: number = 60.0;
-  private fMax: number = 20000.0;
-  private sampleRate: number = 48000.0;
   private bands: DecimatorBand[];
-  private maxBlockSize: number = 4096;
 
   /**
    * Create a Decimator instance
@@ -105,8 +117,8 @@ export class Decimator {
     }
 
     // Calculate frequency range on logarithmic scale
-    const logFMin = Math.log2(this.fMin);
-    const logFMax = Math.log2(this.fMax);
+    const logFMin = Math.log2(this.config.fMin);
+    const logFMax = Math.log2(this.config.fMax);
     const logStep = (logFMax - logFMin) / this.config.numBands;
 
     // Create bands with exponentially spaced cutoff frequencies
@@ -118,7 +130,7 @@ export class Decimator {
       // Each band's Nyquist frequency is 2x the cutoff frequency
       // We want to decimate so the new sample rate is just above 2x cutoff
       const nyquistFreq = cutoffFrequency * 2;
-      const currentSampleRate = i === 0 ? this.sampleRate : this.sampleRate / this.getCumulativeDecimationFactor(i - 1);
+      const currentSampleRate = i === 0 ? this.config.sampleRate : this.config.sampleRate / this.getCumulativeDecimationFactor(i - 1);
 
       // Calculate how much we can decimate while staying above Nyquist
       const maxDecimation = Math.floor(currentSampleRate / (nyquistFreq * 1.1)); // 1.1 for safety margin
@@ -130,7 +142,7 @@ export class Decimator {
       this.bands.push({
         cutoffFrequency,
         decimationFactor,
-        buffer: new Float32Array(this.maxBlockSize),
+        buffer: new Float32Array(this.config.maxBlockSize),
         filterState,
       });
     }
@@ -332,7 +344,7 @@ export class Decimator {
       cutoffFrequency: band.cutoffFrequency,
       decimationFactor: band.decimationFactor,
       cumulativeDecimationFactor: this.getCumulativeDecimationFactor(index),
-      effectiveSampleRate: this.sampleRate / this.getCumulativeDecimationFactor(index),
+      effectiveSampleRate: this.config.sampleRate / this.getCumulativeDecimationFactor(index),
     }));
   }
 
@@ -351,7 +363,7 @@ export class Decimator {
       cutoffFrequency: band.cutoffFrequency,
       decimationFactor: band.decimationFactor,
       cumulativeDecimationFactor: this.getCumulativeDecimationFactor(bandIndex),
-      effectiveSampleRate: this.sampleRate / this.getCumulativeDecimationFactor(bandIndex),
+      effectiveSampleRate: this.config.sampleRate / this.getCumulativeDecimationFactor(bandIndex),
     };
   }
 }

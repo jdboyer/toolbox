@@ -111,6 +111,9 @@ export class Transformer {
       this.config.blockSize,
       this.config.maxBlocks,
       this.waveletTransform.getMinWindowSize(),
+      this.config.sampleRate,
+      this.config.fMin,
+      this.config.fMax,
       (inputOffset: number) => this.processTransform(inputOffset)
     );
 

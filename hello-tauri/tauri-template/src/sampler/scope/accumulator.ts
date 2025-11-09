@@ -44,9 +44,12 @@ export class Accumulator {
    * @param blockSize Number of samples per block (default: 4096)
    * @param maxBlocks Maximum number of blocks in the ring buffer (default: 64)
    * @param minWindowSize Minimum number of samples needed for processing (e.g., CQT window size)
+   * @param sampleRate Sample rate in Hz
+   * @param fMin Minimum frequency for decimator (Hz)
+   * @param fMax Maximum frequency for decimator (Hz)
    * @param processCallback Optional callback invoked when a block is prepared
    */
-  constructor(device: GPUDevice, blockSize: number, maxBlocks: number, minWindowSize: number, processCallback?: ProcessCallback) {
+  constructor(device: GPUDevice, blockSize: number, maxBlocks: number, minWindowSize: number, sampleRate: number, fMin: number, fMax: number, processCallback?: ProcessCallback) {
     this.device = device;
     this.blockSize = blockSize;
     this.maxBlocks = maxBlocks;
@@ -66,8 +69,14 @@ export class Accumulator {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
-    // Initialize decimator with default configuration
-    this.decimator = new Decimator({ numBands: 1 });
+    // Initialize decimator with system configuration
+    this.decimator = new Decimator({
+      numBands: 1,
+      fMin,
+      fMax,
+      sampleRate,
+      maxBlockSize: blockSize,
+    });
   }
 
   /**
