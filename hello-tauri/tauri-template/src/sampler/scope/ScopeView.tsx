@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import AnalyzerService from "./analyzer-service";
+import AnalyzerService from "./analyzer-service.ts";
 
 interface ScopeViewProps {
   canvasWidth: number;

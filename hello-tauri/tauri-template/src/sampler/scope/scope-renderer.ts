@@ -33,7 +33,7 @@ export class ScopeRenderer {
     console.log("ScopeRenderer: Initializing");
 
     // Get canvas context
-    this.context = canvas.getContext("webgpu");
+    this.context = canvas.getContext("webgpu") as GPUCanvasContext | null;
     if (!this.context) {
       console.error("ScopeRenderer: Failed to get WebGPU context");
       return false;

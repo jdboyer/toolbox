@@ -11,7 +11,8 @@
   },
   "compilerOptions": {
     "types": ["@webgpu/types"],
-    "lib": ["deno.window", "dom", "dom.iterable"]
+    "lib": ["deno.window", "dom", "dom.iterable"],
+    "jsx": "react-jsx"
   },
   "exclude": [
     "node_modules",

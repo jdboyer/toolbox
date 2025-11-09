@@ -10,7 +10,7 @@
  * the device/adapter at construction time.
  */
 
-import { Analyzer } from "./analyzer";
+import { Analyzer } from "./analyzer.ts";
 
 class AnalyzerServiceImpl {
   private analyzer: Analyzer | null = null;
