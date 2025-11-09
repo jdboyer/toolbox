@@ -344,6 +344,10 @@ export class Accumulator {
     this.outputBuffer.destroy();
   }
 
+  calculateKernalDistribution(): void {
+
+  }
+
   calculateMaxKernalSize(): number {
     const bandsInfo = this.decimator.getBandsInfo();
     let maxKernalSize = 1;
