@@ -3,6 +3,7 @@ import { Stack, Text, Table, Divider, ScrollArea, Group } from "@mantine/core";
 import { IconLink, IconLinkOff } from "@tabler/icons-react";
 import AnalyzerService from "../sampler/scope/analyzer-service.ts";
 import type { TransformerConfig } from "../sampler/scope/transformer.ts";
+import type { BandInfo } from "../sampler/scope/decimator.ts";
 
 interface AllSettings {
   transformer: TransformerConfig;
@@ -10,6 +11,10 @@ interface AllSettings {
     blockSize: number;
     maxBlocks: number;
     outputBufferSize: number;
+  };
+  decimator: {
+    numBands: number;
+    bands: BandInfo[];
   };
   waveletTransform: {
     numBins: number;
@@ -69,12 +74,18 @@ export function AirwaveSettings() {
           const waveletTransform = transformer.getWaveletTransform();
           const spectrogram = transformer.getSpectrogram();
 
+          const decimator = accumulator.getDecimator();
+
           const allSettings: AllSettings = {
             transformer: transformer.getConfig(),
             accumulator: {
               blockSize: accumulator.getBlockSize(),
               maxBlocks: accumulator.getMaxBlocks(),
               outputBufferSize: accumulator.getOutputBufferSize(),
+            },
+            decimator: {
+              numBands: decimator.getNumBands(),
+              bands: decimator.getBandsInfo(),
             },
             waveletTransform: {
               numBins: waveletTransform.getNumBins(),
@@ -220,6 +231,49 @@ export function AirwaveSettings() {
               />
             </Table.Tbody>
           </Table>
+        </div>
+
+        <Divider />
+
+        {/* Decimator Settings */}
+        <div>
+          <Text size="xs" fw={600} c="dimmed" mb={4}>DECIMATOR</Text>
+          <Table>
+            <Table.Tbody>
+              <SettingRow
+                label="Num Bands"
+                value={settings.decimator.numBands}
+              />
+            </Table.Tbody>
+          </Table>
+
+          {settings.decimator.bands.length > 0 && (
+            <>
+              <Text size="xs" fw={600} c="dimmed" mt="md" mb={4}>BAND INFORMATION</Text>
+              <Table>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th><Text size="xs" fw={600}>Band</Text></Table.Th>
+                    <Table.Th><Text size="xs" fw={600}>Cutoff (Hz)</Text></Table.Th>
+                    <Table.Th><Text size="xs" fw={600}>Dec. Factor</Text></Table.Th>
+                    <Table.Th><Text size="xs" fw={600}>Cumulative</Text></Table.Th>
+                    <Table.Th><Text size="xs" fw={600}>Sample Rate</Text></Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {settings.decimator.bands.map((band, index) => (
+                    <Table.Tr key={index}>
+                      <Table.Td><Text size="xs">{index}</Text></Table.Td>
+                      <Table.Td><Text size="xs" c="dimmed">{band.cutoffFrequency.toFixed(1)}</Text></Table.Td>
+                      <Table.Td><Text size="xs" c="dimmed">{band.decimationFactor}</Text></Table.Td>
+                      <Table.Td><Text size="xs" c="dimmed">{band.cumulativeDecimationFactor}</Text></Table.Td>
+                      <Table.Td><Text size="xs" c="dimmed">{band.effectiveSampleRate.toFixed(1)}</Text></Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </>
+          )}
         </div>
 
         <Divider />
