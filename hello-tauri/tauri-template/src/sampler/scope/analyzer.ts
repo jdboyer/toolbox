@@ -7,8 +7,6 @@ import { Transformer } from "./transformer.ts";
 export interface AnalyzerConfig {
   /** Sample rate in Hz (e.g., 44100, 48000) */
   sampleRate: number;
-  /** Number of samples per block */
-  blockSize: number;
   /** Maximum number of blocks in the ring buffer */
   maxBlocks: number;
 }
@@ -18,7 +16,6 @@ export interface AnalyzerConfig {
  */
 const DEFAULT_CONFIG: AnalyzerConfig = {
   sampleRate: 48000,
-  blockSize: 2048,
   maxBlocks: 128,
 };
 
@@ -86,18 +83,17 @@ export class Analyzer {
    */
   configureAnalyzer(config: Partial<AnalyzerConfig>): void {
     const configChanged =
-      (config.blockSize !== undefined && config.blockSize !== this.config.blockSize) ||
       (config.maxBlocks !== undefined && config.maxBlocks !== this.config.maxBlocks);
 
     // Update configuration
     this.config = { ...this.config, ...config };
 
-    // If block size or max blocks changed, recreate the accumulator and transformer
+    // If max blocks changed, recreate the accumulator and transformer
     if (configChanged) {
       // Destroy old transformer's WebGPU resources
       //this.transformer.destroy();
 
-      //this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
+      //this.accumulator = new Accumulator(this.config.maxBlocks);
       //this.transformer = new Transformer(this.device, this.accumulator);
     }
   }

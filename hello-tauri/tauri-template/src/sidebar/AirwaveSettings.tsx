@@ -119,10 +119,6 @@ export function AirwaveSettings() {
                 <Table.Td><Text size="xs">{settings.analyzer.sampleRate} Hz</Text></Table.Td>
               </Table.Tr>
               <Table.Tr>
-                <Table.Td><Text size="xs">Block Size</Text></Table.Td>
-                <Table.Td><Text size="xs">{settings.analyzer.blockSize}</Text></Table.Td>
-              </Table.Tr>
-              <Table.Tr>
                 <Table.Td><Text size="xs">Max Blocks</Text></Table.Td>
                 <Table.Td><Text size="xs">{settings.analyzer.maxBlocks}</Text></Table.Td>
               </Table.Tr>
