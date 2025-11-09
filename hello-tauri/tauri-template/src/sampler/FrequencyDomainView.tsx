@@ -40,7 +40,7 @@ export function FrequencyDomainView({
   onTimeRangeChange,
   onTimeOffsetChange,
 }: FrequencyDomainViewProps) {
-  console.log(`[FrequencyDomainView] Component render - timeOffset: ${timeOffset}, timeRange: ${timeRange}`);
+  //console.log(`[FrequencyDomainView] Component render - timeOffset: ${timeOffset}, timeRange: ${timeRange}`);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [canvasHeight, setCanvasHeight] = useState(400);
@@ -87,7 +87,7 @@ export function FrequencyDomainView({
     const computeSpectrogramData = async () => {
       try {
         setIsComputing(true);
-        console.log("Computing CQT with config:", { fmin, fmax, binsPerOctave, hopLength, windowScale, threshold });
+        //console.log("Computing CQT with config:", { fmin, fmax, binsPerOctave, hopLength, windowScale, threshold });
 
         // Convert samples to Float32Array
         const audioData = new Float32Array(wavData.samples);
@@ -103,7 +103,7 @@ export function FrequencyDomainView({
           threshold,
         });
 
-        console.log(`CQT computed: ${result.numBins} bins × ${result.numFrames} frames`);
+        //console.log(`CQT computed: ${result.numBins} bins × ${result.numFrames} frames`);
 
         // Find min/max magnitude for normalization
         let minMagnitude = Infinity;

@@ -174,7 +174,7 @@ export function renderSpectrogram(
                           cachedImageData.height !== height;
 
   if (needsFullRender) {
-    console.log('[SpectrogramRenderer] Rendering full spectrogram (cache miss)');
+    //console.log('[SpectrogramRenderer] Rendering full spectrogram (cache miss)');
     const fullRenderStart = performance.now();
 
     // Render the FULL spectrogram at native resolution (1 pixel per frame)
@@ -202,9 +202,9 @@ export function renderSpectrogram(
 
     cacheKey = newCacheKey;
     const fullRenderEnd = performance.now();
-    console.log(`[SpectrogramRenderer] Full render took: ${(fullRenderEnd - fullRenderStart).toFixed(2)}ms`);
+    //console.log(`[SpectrogramRenderer] Full render took: ${(fullRenderEnd - fullRenderStart).toFixed(2)}ms`);
   } else {
-    console.log('[SpectrogramRenderer] Using cached spectrogram');
+    //console.log('[SpectrogramRenderer] Using cached spectrogram');
   }
 
   // Now render the visible portion from cache to canvas
@@ -246,7 +246,7 @@ export function renderSpectrogram(
   const viewRenderTime = renderEnd - renderStart;
   const putImageTime = putImageEnd - putImageStart;
 
-  console.log(`[SpectrogramRenderer] Total: ${totalTime.toFixed(2)}ms (View render: ${viewRenderTime.toFixed(2)}ms, putImageData: ${putImageTime.toFixed(2)}ms)`);
+  //console.log(`[SpectrogramRenderer] Total: ${totalTime.toFixed(2)}ms (View render: ${viewRenderTime.toFixed(2)}ms, putImageData: ${putImageTime.toFixed(2)}ms)`);
 }
 
 // Bilinear interpolation for smooth color transitions
