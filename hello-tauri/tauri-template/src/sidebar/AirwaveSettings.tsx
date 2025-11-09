@@ -3,10 +3,8 @@ import { Stack, Text, Table, Divider, ScrollArea, Group } from "@mantine/core";
 import { IconLink, IconLinkOff } from "@tabler/icons-react";
 import AnalyzerService from "../sampler/scope/analyzer-service.ts";
 import type { TransformerConfig } from "../sampler/scope/transformer.ts";
-import type { AnalyzerConfig } from "../sampler/scope/analyzer.ts";
 
 interface AllSettings {
-  analyzer: AnalyzerConfig;
   transformer: TransformerConfig;
   accumulator: {
     blockSize: number;
@@ -77,7 +75,6 @@ export function AirwaveSettings() {
           const spectrogram = transformer.getSpectrogram();
 
           const allSettings: AllSettings = {
-            analyzer: analyzer.getConfig(),
             transformer: transformer.getConfig(),
             accumulator: {
               blockSize: accumulator.getBlockSize(),
@@ -128,11 +125,9 @@ export function AirwaveSettings() {
     return undefined;
   };
 
-  // Check specific common settings
+  // Sample rate only exists in Transformer now, so no linking needed
   const isSampleRateLinked = (): boolean | undefined => {
-    if (!settings) return undefined;
-    const rates = [settings.analyzer.sampleRate, settings.transformer.sampleRate];
-    return rates.every(r => r === rates[0]) ? true : false;
+    return undefined; // Only one component has this setting
   };
 
   const isMaxBlocksLinked = (): boolean | undefined => {
@@ -176,22 +171,6 @@ export function AirwaveSettings() {
     <ScrollArea style={{ height: '100%' }}>
       <Stack gap="md" p="md">
         <Text size="sm" fw={500}>System Settings</Text>
-
-        {/* Analyzer Settings */}
-        <div>
-          <Text size="xs" fw={600} c="dimmed" mb={4}>ANALYZER</Text>
-          <Table>
-            <Table.Tbody>
-              <SettingRow
-                label="Sample Rate"
-                value={`${settings.analyzer.sampleRate} Hz`}
-                isLinked={isSampleRateLinked()}
-              />
-            </Table.Tbody>
-          </Table>
-        </div>
-
-        <Divider />
 
         {/* Transformer Settings */}
         <div>

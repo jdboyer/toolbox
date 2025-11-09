@@ -2,21 +2,6 @@ import { ScopeRenderer } from "./scope-renderer.ts";
 import { Transformer } from "./transformer.ts";
 
 /**
- * Configuration options for the Analyzer
- */
-export interface AnalyzerConfig {
-  /** Sample rate in Hz (e.g., 44100, 48000) */
-  sampleRate: number;
-}
-
-/**
- * Default configuration values
- */
-const DEFAULT_CONFIG: AnalyzerConfig = {
-  sampleRate: 48000,
-};
-
-/**
  * Analyzer - Audio analysis engine using WebGPU
  *
  * This class provides audio analysis capabilities using WebGPU for acceleration.
@@ -28,9 +13,7 @@ const DEFAULT_CONFIG: AnalyzerConfig = {
 export class Analyzer {
   private device: GPUDevice;
   private adapter: GPUAdapter;
-  //private accumulator: Accumulator;
   private transformer: Transformer;
-  private config: AnalyzerConfig;
   private scopeRenderer: ScopeRenderer | null = null;
 
   /**
@@ -41,8 +24,6 @@ export class Analyzer {
   constructor(device: GPUDevice, adapter: GPUAdapter) {
     this.device = device;
     this.adapter = adapter;
-    this.config = { ...DEFAULT_CONFIG };
-    //this.accumulator = new Accumulator(this.config.blockSize, this.config.maxBlocks);
     this.transformer = new Transformer(this.device);
   }
 
@@ -75,40 +56,12 @@ export class Analyzer {
   }
 
   /**
-   * Configure the analyzer
-   * @param config Partial configuration object (only specified fields will be updated)
-   */
-  configureAnalyzer(config: Partial<AnalyzerConfig>): void {
-    // Update configuration
-    this.config = { ...this.config, ...config };
-
-    // Note: Configuration changes currently don't trigger resource recreation
-    // since the accumulator and related components are managed by Transformer
-  }
-
-  /**
    * Process a buffer of audio samples
    * @param samples Float32Array containing audio samples
    */
   processSamples(samples: Float32Array): void {
     this.transformer.addSamples(samples);
-    //this.accumulator.addSamples(samples);
-    //this.transformer.processBlocks();
   }
-
-  /**
-   * Get the current configuration
-   */
-  getConfig(): AnalyzerConfig {
-    return { ...this.config };
-  }
-
-  /**
-   * Get the accumulator instance
-   */
-  //getAccumulator(): Accumulator {
-    //return this.accumulator;
-  //}
 
   /**
    * Get the transformer instance
