@@ -1,6 +1,12 @@
 import { RingBuffer } from "./ring-buffer.ts";
 
 /**
+ * Callback function invoked when a block is prepared and ready for processing
+ * @param inputOffset - The offset in the output buffer where the block starts
+ */
+export type ProcessCallback = (inputOffset: number) => void;
+
+/**
  * Accumulator - Manages a ring buffer for accumulating audio samples
  *
  * This class is responsible for:
@@ -23,18 +29,23 @@ export class Accumulator {
   private lastPreparedBlockIndex: number = -1;
   private overlapRegionBlocks: number; // Number of blocks copied during wrap-around
 
+  // Callback for processing blocks
+  private processCallback?: ProcessCallback;
+
   /**
    * Create an Accumulator instance
    * @param device Pre-initialized WebGPU device
    * @param blockSize Number of samples per block (default: 4096)
    * @param maxBlocks Maximum number of blocks in the ring buffer (default: 64)
    * @param minWindowSize Minimum number of samples needed for processing (e.g., CQT window size)
+   * @param processCallback Optional callback invoked when a block is prepared
    */
-  constructor(device: GPUDevice, blockSize = 4096, maxBlocks = 64, minWindowSize = 16384) {
+  constructor(device: GPUDevice, blockSize = 4096, maxBlocks = 64, minWindowSize = 16384, processCallback?: ProcessCallback) {
     this.device = device;
     this.blockSize = blockSize;
     this.maxBlocks = maxBlocks;
     this.minWindowSize = minWindowSize;
+    this.processCallback = processCallback;
 
     // Calculate overlap region size (blocks copied during wrap-around)
     // When wrapping: blocksNeeded = ceil(minWindowSize / blockSize)
@@ -139,7 +150,15 @@ export class Accumulator {
       this.outputBufferWriteOffset * 4, // byte offset
       buffer
     );
+
+    // Calculate the input offset for this block before updating write offset
+    //const inputOffset = this.outputBufferWriteOffset;
     this.outputBufferWriteOffset += samplesNeeded;
+
+    // Invoke the callback if provided, passing the input offset
+    //if (this.processCallback) {
+      //this.processCallback(inputOffset);
+    //}
   }
 
   /**

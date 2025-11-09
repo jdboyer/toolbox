@@ -90,11 +90,13 @@ export class Transformer {
     this.minWindowSize = this.calculateMinWindowSize() + hopLength;
 
     // Create accumulator with minWindowSize for proper buffer management
+    // Pass processTransform as callback to be invoked when blocks are ready
     this.accumulator = new Accumulator(
       this.device,
       this.config.blockSize,
       this.config.maxBlocks,
-      this.minWindowSize
+      this.minWindowSize,
+      (inputOffset: number) => this.processTransform(inputOffset)
     );
 
     // Create wavelet transform (CQT)
