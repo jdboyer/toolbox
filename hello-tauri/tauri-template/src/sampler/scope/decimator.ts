@@ -9,13 +9,9 @@ export interface DecimatorConfig {
 }
 
 /**
- * Output data for a single band
+ * Metadata for a single band
  */
-export interface BandOutput {
-  /**
-   * Decimated samples for this band
-   */
-  samples: Float32Array;
+export interface BandInfo {
   /**
    * Cutoff frequency for this band (Hz)
    */
@@ -32,16 +28,6 @@ export interface BandOutput {
    * Effective sample rate after decimation (Hz)
    */
   effectiveSampleRate: number;
-}
-
-/**
- * Complete output from processBlock containing all band outputs
- */
-export interface DecimatorOutput {
-  /**
-   * Array of outputs for each band, indexed by band number
-   */
-  bands: BandOutput[];
 }
 
 interface DecimatorBand {
@@ -167,11 +153,11 @@ export class Decimator {
    * Process a block of audio samples
    * Applies cascaded anti-aliasing filtering and decimation through each band
    * @param samples Float32Array containing audio samples to process
-   * @param output Output object to store results for each band
+   * @param output Output array to store decimated samples for each band
    */
-  processBlock(samples: Float32Array, output: DecimatorOutput): void {
+  processBlock(samples: Float32Array, output: Float32Array[]): void {
     // Clear previous outputs
-    output.bands = [];
+    output.length = 0;
 
     if (this.bands.length === 0) {
       return;
@@ -194,22 +180,12 @@ export class Decimator {
       const copyLength = Math.min(decimated.length, band.buffer.length);
       band.buffer.set(decimated.subarray(0, copyLength));
 
-      // Calculate cumulative decimation and effective sample rate
-      const cumulativeDecimation = this.getCumulativeDecimationFactor(bandIndex);
-      const effectiveSampleRate = this.sampleRate / cumulativeDecimation;
-
       // Create a copy of the decimated data for output
       const outputSamples = new Float32Array(decimated.length);
       outputSamples.set(decimated);
 
-      // Store band output
-      output.bands.push({
-        samples: outputSamples,
-        cutoffFrequency: band.cutoffFrequency,
-        decimationFactor: band.decimationFactor,
-        cumulativeDecimationFactor: cumulativeDecimation,
-        effectiveSampleRate: effectiveSampleRate,
-      });
+      // Store band output samples
+      output.push(outputSamples);
 
       // Use this band's output as input for the next band
       currentInput = decimated;
@@ -345,5 +321,37 @@ export class Decimator {
    */
   getNumBands(): number {
     return this.config.numBands;
+  }
+
+  /**
+   * Get metadata information for all bands
+   * @returns Array of BandInfo containing metadata for each band
+   */
+  getBandsInfo(): BandInfo[] {
+    return this.bands.map((band, index) => ({
+      cutoffFrequency: band.cutoffFrequency,
+      decimationFactor: band.decimationFactor,
+      cumulativeDecimationFactor: this.getCumulativeDecimationFactor(index),
+      effectiveSampleRate: this.sampleRate / this.getCumulativeDecimationFactor(index),
+    }));
+  }
+
+  /**
+   * Get metadata for a specific band
+   * @param bandIndex Index of the band
+   * @returns BandInfo for the specified band, or null if index is out of range
+   */
+  getBandInfo(bandIndex: number): BandInfo | null {
+    if (bandIndex < 0 || bandIndex >= this.bands.length) {
+      return null;
+    }
+
+    const band = this.bands[bandIndex];
+    return {
+      cutoffFrequency: band.cutoffFrequency,
+      decimationFactor: band.decimationFactor,
+      cumulativeDecimationFactor: this.getCumulativeDecimationFactor(bandIndex),
+      effectiveSampleRate: this.sampleRate / this.getCumulativeDecimationFactor(bandIndex),
+    };
   }
 }

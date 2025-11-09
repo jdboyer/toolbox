@@ -91,13 +91,7 @@ export class Transformer {
 
     // Create accumulator with minWindowSize for proper buffer management
     // Pass processTransform as callback to be invoked when blocks are ready
-    this.accumulator = new Accumulator(
-      this.device,
-      this.config.blockSize,
-      this.config.maxBlocks,
-      this.minWindowSize,
-      (inputOffset: number) => this.processTransform(inputOffset)
-    );
+
 
     // Create wavelet transform (CQT)
     // WaveletTransform now creates and owns its output buffer
@@ -112,13 +106,22 @@ export class Transformer {
     };
     this.waveletTransform = new WaveletTransform(this.device, cqtConfig);
 
+    this.accumulator = new Accumulator(
+      this.device,
+      this.config.blockSize,
+      this.config.maxBlocks,
+      this.waveletTransform.getMinWindowSize(),
+      (inputOffset: number) => this.processTransform(inputOffset)
+    );
+
     // Configure the wavelet transform with the input buffer
     this.waveletTransform.configure(
       this.accumulator.getOutputBuffer(),
       this.accumulator.getOutputBufferSize()
     );
 
-    this.accumulator.setMinSamples(this.waveletTransform.getMinWindowSize());
+    //console.log(`Wavelet min window size: ${this.minWindowSize}`)
+    //this.accumulator.setMinSamples(this.waveletTransform.getMinWindowSize());
 
     // Create spectrogram
     const spectrogramConfig: Partial<SpectrogramConfig> = {

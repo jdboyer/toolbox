@@ -28,7 +28,7 @@ export class Accumulator {
   private readonly OUTPUT_BUFFER_SIZE = 4096 * 16; // samples
   private minWindowSize: number;
   private lastPreparedBlockIndex: number = -1;
-  private waveletWindowSize: number = 1;
+  //private waveletWindowSize: number = 1;
 
   private unprocessedBlocks: number = 0;
 
@@ -46,7 +46,7 @@ export class Accumulator {
    * @param minWindowSize Minimum number of samples needed for processing (e.g., CQT window size)
    * @param processCallback Optional callback invoked when a block is prepared
    */
-  constructor(device: GPUDevice, blockSize = 4096, maxBlocks = 64, minWindowSize = 16384, processCallback?: ProcessCallback) {
+  constructor(device: GPUDevice, blockSize: number, maxBlocks: number, minWindowSize: number, processCallback?: ProcessCallback) {
     this.device = device;
     this.blockSize = blockSize;
     this.maxBlocks = maxBlocks;
@@ -121,7 +121,7 @@ export class Accumulator {
       if (this.processCallback) {
         this.unprocessedBlocks += completed;
         const currentWriteOffset = this.getOutputBufferWriteOffset();
-        const blocksRequired = Math.ceil(this.waveletWindowSize / this.blockSize);
+        const blocksRequired = Math.ceil(this.minWindowSize / this.blockSize);
         const blocksToProcess = Math.max(this.unprocessedBlocks - blocksRequired, 0);
         for (let i = 0; i < blocksToProcess; i++) { // Max one
           const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks + i - 1) * this.blockSize;
@@ -213,9 +213,9 @@ export class Accumulator {
     this.device.queue.writeBuffer(this.outputBuffer, 0, zeros);
   }
 
-  setMinSamples(n: number): void {
-    this.waveletWindowSize = n;
-  }
+  //setMinSamples(n: number): void {
+   // this.waveletWindowSize = n;
+  //}
 
   /**
    * Get the block size
