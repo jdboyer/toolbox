@@ -64,7 +64,9 @@
       "Bash(deno check src/sampler/scope/decimator.ts)",
       "Bash(deno check src/sampler/scope/accumulator.ts)",
       "Bash(deno check src/sampler/scope/transformer.ts)",
-      "Bash(deno check src/sampler/scope/note-utils.ts)"
+      "Bash(deno check src/sampler/scope/note-utils.ts)",
+      "Bash(deno check src/sampler/scope/BandInfo.tsx)",
+      "Bash(deno check src/sampler/Sampler.tsx)"
     ],
     "deny": [],
     "ask": []

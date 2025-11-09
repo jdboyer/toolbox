@@ -1,12 +1,13 @@
 import { Stack, Group, ActionIcon, Text } from "@mantine/core";
-import { IconFolder } from "@tabler/icons-react";
+import { IconFolder, IconEyeDiscount } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { TimeDomainView } from "./TimeDomainView";
+import { TimeDomainView } from "./TimeDomainView.tsx";
 // import { FrequencyDomainView } from "./FrequencyDomainView";
-import { ScopeView } from "./scope/ScopeView";
-import AnalyzerService from "./scope/analyzer-service";
+import { ScopeView } from "./scope/ScopeView.tsx";
+import { BandInfo } from "./scope/BandInfo.tsx";
+import AnalyzerService from "./scope/analyzer-service.ts";
 
 interface WavData {
   samples: number[];
@@ -25,6 +26,7 @@ interface SamplerProps {
 export function Sampler({ }: SamplerProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [wavData, setWavData] = useState<WavData | null>(null);
+  const [showBandInfo, setShowBandInfo] = useState(false);
 
   // Canvas dimensions
   const canvasWidth = 1400;
@@ -114,32 +116,49 @@ export function Sampler({ }: SamplerProps) {
 
   return (
     <Stack style={{ width: '100%', height: '100%' }} gap="md">
-      <Group>
-        <ActionIcon onClick={handleSelectFile} variant="default" size="lg">
-          <IconFolder size={18} />
+      <Group justify="space-between">
+        <Group>
+          <ActionIcon onClick={handleSelectFile} variant="default" size="lg">
+            <IconFolder size={18} />
+          </ActionIcon>
+          <Text>{getFileName()}</Text>
+        </Group>
+        <ActionIcon
+          onClick={() => setShowBandInfo(!showBandInfo)}
+          variant={showBandInfo ? "filled" : "default"}
+          size="lg"
+        >
+          <IconEyeDiscount size={18} />
         </ActionIcon>
-        <Text>{getFileName()}</Text>
       </Group>
 
-      <TimeDomainView
-        canvasWidth={canvasWidth}
-        canvasHeight={timeDomainHeight}
-        timeRange={timeRange}
-        timeOffset={timeOffset}
-        onTimeRangeChange={setTimeRange}
-        onTimeOffsetChange={setTimeOffset}
-        wavFilePath={selectedFile}
-      />
+      {showBandInfo ? (
+        <div style={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <BandInfo />
+        </div>
+      ) : (
+        <>
+          <TimeDomainView
+            canvasWidth={canvasWidth}
+            canvasHeight={timeDomainHeight}
+            timeRange={timeRange}
+            timeOffset={timeOffset}
+            onTimeRangeChange={setTimeRange}
+            onTimeOffsetChange={setTimeOffset}
+            wavFilePath={selectedFile}
+          />
 
-      <div style={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <ScopeView
-          canvasWidth={canvasWidth}
-          canvasHeight={frequencyDomainHeight}
-          timeRange={timeRange}
-          timeOffset={timeOffset}
-          sampleRate={wavData?.sample_rate || 48000}
-        />
-      </div>
+          <div style={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <ScopeView
+              canvasWidth={canvasWidth}
+              canvasHeight={frequencyDomainHeight}
+              timeRange={timeRange}
+              timeOffset={timeOffset}
+              sampleRate={wavData?.sample_rate || 48000}
+            />
+          </div>
+        </>
+      )}
     </Stack>
   );
 }
