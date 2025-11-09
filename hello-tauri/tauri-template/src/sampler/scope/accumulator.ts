@@ -1,6 +1,12 @@
 import { RingBuffer } from "./ring-buffer.ts";
 
 /**
+ * Callback function type for when blocks are completed
+ * @param inputOffset The offset in the output buffer where the block starts
+ */
+export type BlockCompletedCallback = (inputOffset: number) => void;
+
+/**
  * Accumulator - Manages a ring buffer for accumulating audio samples
  *
  * This class is responsible for:
@@ -8,12 +14,14 @@ import { RingBuffer } from "./ring-buffer.ts";
  * 2. Managing a ring buffer of blocks for processing
  * 3. Tracking which blocks are ready for processing
  * 4. Managing WebGPU output buffer with automatic overflow handling
+ * 5. Calling a callback function when blocks are ready for processing
  */
 export class Accumulator {
   private device: GPUDevice;
   private blockSize: number;
   private maxBlocks: number;
   private inputRingBuffer: RingBuffer<Float32Array>;
+  private onBlockCompleted: BlockCompletedCallback | null = null;
 
   // Output buffer management
   private outputBuffer: GPUBuffer;
@@ -23,24 +31,39 @@ export class Accumulator {
   private lastPreparedBlockIndex: number = -1;
   private overlapRegionBlocks: number; // Number of blocks copied during wrap-around
 
+  // Track unprocessed blocks for batching
+  private unprocessedBlocks: number = 0;
+  private blocksRequired: number; // Minimum blocks needed before processing can start
+
   /**
    * Create an Accumulator instance
    * @param device Pre-initialized WebGPU device
    * @param blockSize Number of samples per block (default: 4096)
    * @param maxBlocks Maximum number of blocks in the ring buffer (default: 64)
    * @param minWindowSize Minimum number of samples needed for processing (e.g., CQT window size)
+   * @param onBlockCompleted Optional callback function called when blocks are ready for processing
    */
-  constructor(device: GPUDevice, blockSize = 4096, maxBlocks = 64, minWindowSize = 16384) {
+  constructor(
+    device: GPUDevice,
+    blockSize = 4096,
+    maxBlocks = 64,
+    minWindowSize = 16384,
+    onBlockCompleted?: BlockCompletedCallback
+  ) {
     this.device = device;
     this.blockSize = blockSize;
     this.maxBlocks = maxBlocks;
     this.minWindowSize = minWindowSize;
+    this.onBlockCompleted = onBlockCompleted ?? null;
 
     // Calculate overlap region size (blocks copied during wrap-around)
     // When wrapping: blocksNeeded = ceil(minWindowSize / blockSize)
     // Overlap = blocksNeeded - 1 (the current block is added separately)
     const blocksNeeded = Math.ceil(minWindowSize / blockSize);
     this.overlapRegionBlocks = blocksNeeded - 1;
+
+    // Calculate minimum blocks required before we can start processing
+    this.blocksRequired = blocksNeeded;
 
     // Create ring buffer for input samples
     this.inputRingBuffer = new RingBuffer<Float32Array>(
@@ -106,6 +129,7 @@ export class Accumulator {
   /**
    * Prepare the output buffer with samples from a completed block
    * Handles buffer overflow by resetting and backfilling with previous blocks
+   * Calls the onBlockCompleted callback when blocks are ready for processing
    * @param blockIndex Index of the block to prepare
    */
   private prepareOutputBuffer(blockIndex: number): void {
@@ -140,6 +164,24 @@ export class Accumulator {
       buffer
     );
     this.outputBufferWriteOffset += samplesNeeded;
+
+    // Track unprocessed blocks
+    this.unprocessedBlocks++;
+
+    // Call the callback for blocks that now have enough future context
+    // Process blocks one at a time, oldest first
+    if (this.onBlockCompleted) {
+      const currentWriteOffset = this.outputBufferWriteOffset;
+      const blocksToProcess = Math.max(this.unprocessedBlocks - this.blocksRequired, 0);
+
+      for (let i = 0; i < blocksToProcess; i++) {
+        // Calculate inputOffset for the oldest unprocessed block that has enough context
+        // This matches the old logic: currentWriteOffset - (unprocessedBlocks + i - 1) * blockSize
+        const blockInputOffset = currentWriteOffset - (this.unprocessedBlocks - i - 1) * this.blockSize;
+        this.onBlockCompleted(blockInputOffset);
+        this.unprocessedBlocks--;
+      }
+    }
   }
 
   /**
@@ -150,6 +192,7 @@ export class Accumulator {
     this.inputRingBuffer.reset(true); // Reinitialize buffers with zeros
     this.outputBufferWriteOffset = 0;
     this.lastPreparedBlockIndex = -1;
+    this.unprocessedBlocks = 0;
 
     // Clear the GPU output buffer by writing zeros
     const zeros = new Float32Array(this.OUTPUT_BUFFER_SIZE);
