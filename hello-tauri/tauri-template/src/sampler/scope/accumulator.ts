@@ -391,7 +391,7 @@ export class Accumulator {
 
     for (let k = 0; k < kernalCount; k++) {
       const frequency = fMin * Math.pow(2, k / this.binsPerOctave);
-      // Determine which band to assign this kernal to
+      // Determine which band to assign this kernel to
       // Is this kernal below the cutoff frequency?
       // Assume we'll advance one band at a time
       while (currentBandIndex >= 0 && frequency * 1.1 > bandsInfo[currentBandIndex].cutoffFrequency) 

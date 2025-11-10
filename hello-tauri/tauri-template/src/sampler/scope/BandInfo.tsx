@@ -43,11 +43,12 @@ export function BandInfo() {
         <Table.Tbody>
           {bandSettings.map((band, index) => {
             const kernelCount = band.kernelFrequencies.length;
+            const kernalRange = Math.log2(band.kernelFrequencies[kernelCount - 1] / band.kernelFrequencies[0]);
             const kernelInfo = kernelCount === 0
               ? "None"
               : kernelCount === 1
               ? `${band.kernelFrequencies[0].toFixed(2)} Hz (1 kernel)`
-              : `${band.kernelFrequencies[0].toFixed(2)} - ${band.kernelFrequencies[kernelCount - 1].toFixed(2)} Hz (${kernelCount} kernels)`;
+              : `${band.kernelFrequencies[0].toFixed(2)} - ${band.kernelFrequencies[kernelCount - 1].toFixed(2)} (${kernalRange.toFixed(2)}) Hz (${kernelCount} kernels)`;
 
             return (
               <Table.Tr key={index}>
