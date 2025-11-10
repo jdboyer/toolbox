@@ -1,5 +1,5 @@
 import { RingBuffer } from "./ring-buffer.ts";
-import { Decimator, DecimatorConfig } from "./decimator.ts";
+import { Decimator, DecimatorConfig, BandInfo } from "./decimator.ts";
 import { frequencyToNote } from "./note-utils.ts"
 
 /**
@@ -7,6 +7,16 @@ import { frequencyToNote } from "./note-utils.ts"
  * @param inputOffset - The offset in the output buffer where the block starts
  */
 export type ProcessCallback = (inputOffset: number) => void;
+
+/**
+ * Extended band information including kernel frequencies for CQT processing
+ */
+export interface BandSettings extends BandInfo {
+  /**
+   * Array of kernel frequencies assigned to this band
+   */
+  kernelFrequencies: Float32Array;
+}
 
 /**
  * Accumulator - Manages a ring buffer for accumulating audio samples
@@ -84,7 +94,7 @@ export class Accumulator {
       sampleRate,
       maxBlockSize: blockSize,
     });
-    this.minWindowSize = this.calculateMaxKernalSize();
+    this.minWindowSize = this.calculateMaxKernelSize();
   }
 
   /**
@@ -344,11 +354,73 @@ export class Accumulator {
     this.outputBuffer.destroy();
   }
 
-  calculateKernalDistribution(): void {
+  /**
+   * Calculate band settings including kernel frequencies for each band
+   * @returns Array of BandSettings containing band info and assigned kernel frequencies
+   */
+  calculateBandSettings(): BandSettings[] {
+    const bandsInfo = this.decimator.getBandsInfo();
+    const result: BandSettings[] = [];
 
+    const kernelFrequencies: number[][] = new Array(bandsInfo.length + 1).fill([]).map(() => []);
+
+    let maxKernalSize = 1;
+    const fMax = 20000.0;
+    const fMin = this.fMin;
+    const octaveCount = Math.log2(fMax / fMin);
+    const kernalCount = Math.floor(octaveCount * this.binsPerOctave);
+    let currentBandIndex = bandsInfo.length - 1; // start at the lowest band
+
+    for (let k = 0; k < kernalCount; k++) {
+      const frequency = fMin * Math.pow(2, k / this.binsPerOctave);
+      // Determine which band to assign this kernal to
+      // Is this kernal below the cutoff frequency?
+      // Assume we'll advance one band at a time
+      while (currentBandIndex >= 0 && frequency * 1.1 > bandsInfo[currentBandIndex].cutoffFrequency) 
+      {
+        currentBandIndex -= 1;
+      }
+      // non-decimated band
+      let bandSampleRate = this.sampleRate;
+      if (currentBandIndex >= 0) {
+        // decimated band
+        bandSampleRate = bandsInfo[currentBandIndex].effectiveSampleRate;
+      }
+      kernelFrequencies[currentBandIndex + 1].push(frequency);
+
+      const Q = 1 / (Math.pow(2, 1 / this.binsPerOctave) - 1);
+      //const frequency = this.config.fMin; // * Math.pow(2, k / this.config.binsPerOctave);
+      const windowLength = Math.ceil((Q * bandSampleRate) / frequency);
+      maxKernalSize = Math.max(maxKernalSize, windowLength);
+    }
+
+
+
+
+    // Add dummy BandSettings for non-decimated band (band 0)
+    result.push({
+      cutoffFrequency: 0,
+      decimationFactor: 1,
+      cumulativeDecimationFactor: 1,
+      effectiveSampleRate: this.sampleRate,
+      kernelFrequencies: new Float32Array(0), // TODO: Calculate actual kernel frequencies
+    });
+
+    // Iterate through bandsInfo and add each band's settings
+    for (const bandInfo of bandsInfo) {
+      result.push({
+        ...bandInfo,
+        kernelFrequencies: new Float32Array(0), // TODO: Calculate actual kernel frequencies
+      });
+    }
+
+
+
+    //return maxKernalSize;
+    return result;
   }
 
-  calculateMaxKernalSize(): number {
+  calculateMaxKernelSize(): number {
     const bandsInfo = this.decimator.getBandsInfo();
     let maxKernalSize = 1;
 
