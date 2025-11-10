@@ -88,7 +88,8 @@ export class Transformer {
     const hopLength = this.config.blockSize / this.batchFactor;
 
     // Calculate minimum window size for CQT
-    this.minWindowSize = this.calculateMinWindowSize() + hopLength;
+    //this.minWindowSize = this.calculateMinWindowSize() + hopLength;
+    this.minWindowSize = 512 + hopLength;
 
     // Create accumulator with minWindowSize for proper buffer management
     // Pass processTransform as callback to be invoked when blocks are ready
