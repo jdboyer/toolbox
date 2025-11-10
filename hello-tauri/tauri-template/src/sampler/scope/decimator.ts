@@ -135,7 +135,11 @@ export class Decimator {
 
       // Calculate how much we can decimate while staying above Nyquist
       const maxDecimation = Math.floor(currentSampleRate / (nyquistFreq * 1.1)); // 1.1 for safety margin
-      const decimationFactor = Math.max(1, Math.min(maxDecimation, 4)); // Limit to 4x per stage
+      //const decimationFactor = Math.max(1, Math.min(maxDecimation, 4)); // Limit to 4x per stage
+      const decimationFactor = Math.max(1, maxDecimation);
+      // TODO constrain decimation factor
+      // blockSize / (batchFactor * n) = decimationFactor
+
 
       // Design elliptic filter for this band
       const filterState = this.designEllipticFilter(cutoffFrequency, currentSampleRate);
