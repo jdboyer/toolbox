@@ -428,6 +428,7 @@ export class Decimator {
     const logFMin = Math.log10(fMin);
     const logFMax = Math.log10(fMax);
     const logStep = (logFMax - logFMin) / (numPoints - 1);
+    let clamped = false;
 
     for (let i = 0; i < numPoints; i++) {
       const freq = Math.pow(10, logFMin + i * logStep);
@@ -472,7 +473,22 @@ export class Decimator {
 
       // Calculate magnitude in dB
       const magnitude = Math.sqrt(realPart * realPart + imagPart * imagPart);
-      magnitudeDB.push(20 * Math.log10(magnitude + 1e-10)); // Add small value to avoid log(0)
+
+      if (clamped === false) {
+        const magDB = 20 * Math.log10(magnitude + 1e-10); // Add small value to avoid log(0)
+        if (magDB > -40) {
+          magnitudeDB.push(magDB);
+        }
+        else {
+          clamped = true;
+          magnitudeDB.push(-40);
+        }
+        //magnitudeDB.push(20 * Math.log10(magnitude + 1e-10)); // Add small value to avoid log(0)
+        //if (magnitudeDB.)
+      }
+      else if (clamped === true) {
+          magnitudeDB.push(-40);
+      }
 
       // Calculate phase in radians
       const phase = Math.atan2(imagPart, realPart);

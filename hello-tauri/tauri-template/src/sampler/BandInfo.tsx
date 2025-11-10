@@ -21,7 +21,7 @@ export function BandInfo() {
         setBandSettings(settings);
 
         // Calculate filter responses for all bands
-        const responses = settings.map((band) => band.getFilterResponse(512, 1, 24000));
+        const responses = settings.map((band) => band.getFilterResponse(512, 20, 24000));
         setFilterResponses(responses);
       }
     };
@@ -36,9 +36,9 @@ export function BandInfo() {
   // Chart configuration
   const chartWidth = 800;
   const chartHeight = 400;
-  const fMin = 1;
+  const fMin = 20;
   const fMax = 24000;
-  const magnitudeMin = -80; // dB
+  const magnitudeMin = -20; // dB
   const magnitudeMax = 5; // dB
 
   // Logarithmic transform for frequency (X-axis)
@@ -107,7 +107,7 @@ export function BandInfo() {
     });
 
     // Horizontal grid lines every 20 dB
-    for (let db = magnitudeMin; db <= magnitudeMax; db += 20) {
+    for (let db = magnitudeMin; db <= magnitudeMax; db += 10) {
       const y = magToY(db);
       if (y >= 0 && y <= height) {
         ctx.beginPath();
@@ -168,14 +168,20 @@ export function BandInfo() {
 
       // Draw the line on top
       ctx.beginPath();
+      //clamp = false;
       response.frequencies.forEach((freq, i) => {
         const x = freqToX(freq);
         const y = magToY(response.magnitudeDB[i]);
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
+        //if (!clamp) {
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        //}
+        //if (y <= magToY(-40)) {
+          ////clamp = true;
+        //}
       });
       ctx.stroke();
     });
