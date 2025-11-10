@@ -35,10 +35,10 @@ export function BandInfo() {
 
   // Chart configuration
   const chartWidth = 800;
-  const chartHeight = 400;
-  const fMin = 20;
-  const fMax = 24000;
-  const magnitudeMin = -20; // dB
+  const chartHeight = 200;
+  const fMin = 55;
+  const fMax = 20000;
+  const magnitudeMin = -10; // dB
   const magnitudeMax = 5; // dB
 
   // Logarithmic transform for frequency (X-axis)
