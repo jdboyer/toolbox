@@ -94,7 +94,8 @@ export class Accumulator {
       sampleRate,
       maxBlockSize: blockSize,
     });
-    this.minWindowSize = this.calculateMaxKernelSize();
+    this.calculateBandSettings();
+    //this.minWindowSize = this.calculateMaxKernelSize();
   }
 
   /**
@@ -393,9 +394,7 @@ export class Accumulator {
       const windowLength = Math.ceil((Q * bandSampleRate) / frequency);
       maxKernalSize = Math.max(maxKernalSize, windowLength);
     }
-
-
-
+    this.minWindowSize = maxKernalSize;
 
     // Add dummy BandSettings for non-decimated band (band 0)
     result.push({
@@ -414,10 +413,6 @@ export class Accumulator {
         kernelFrequencies: new Float32Array(kernelFrequencies[i + 1]),
       });
     }
-
-
-
-    //return maxKernalSize;
     return result;
   }
 
