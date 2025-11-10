@@ -29,6 +29,24 @@ export interface DecimatorConfig {
 }
 
 /**
+ * Filter response data containing frequency and phase information
+ */
+export interface FilterResponse {
+  /**
+   * Array of frequencies at which the response was calculated (Hz)
+   */
+  frequencies: number[];
+  /**
+   * Magnitude response in dB at each frequency
+   */
+  magnitudeDB: number[];
+  /**
+   * Phase response in radians at each frequency
+   */
+  phaseRadians: number[];
+}
+
+/**
  * Metadata for a single band
  */
 export interface BandInfo {
@@ -48,6 +66,14 @@ export interface BandInfo {
    * Effective sample rate after decimation (Hz)
    */
   effectiveSampleRate: number;
+  /**
+   * Get the frequency and phase response of this band's anti-aliasing filter
+   * @param numPoints Number of frequency points to calculate (default: 512)
+   * @param fMin Minimum frequency in Hz (default: 1 Hz)
+   * @param fMax Maximum frequency in Hz (default: effectiveSampleRate / 2)
+   * @returns FilterResponse containing frequency, magnitude, and phase data
+   */
+  getFilterResponse: (numPoints?: number, fMin?: number, fMax?: number) => FilterResponse;
 }
 
 interface DecimatorBand {
@@ -379,6 +405,88 @@ export class Decimator {
   }
 
   /**
+   * Calculate the frequency and phase response of a filter
+   * @param filterState The filter state containing biquad sections
+   * @param sampleRate The sample rate at which the filter operates
+   * @param numPoints Number of frequency points to calculate
+   * @param fMin Minimum frequency in Hz
+   * @param fMax Maximum frequency in Hz
+   * @returns FilterResponse object with frequency, magnitude, and phase data
+   */
+  private calculateFilterResponse(
+    filterState: EllipticFilterState,
+    sampleRate: number,
+    numPoints: number = 512,
+    fMin: number = 1,
+    fMax: number = sampleRate / 2
+  ): FilterResponse {
+    const frequencies: number[] = [];
+    const magnitudeDB: number[] = [];
+    const phaseRadians: number[] = [];
+
+    // Generate logarithmically spaced frequencies
+    const logFMin = Math.log10(fMin);
+    const logFMax = Math.log10(fMax);
+    const logStep = (logFMax - logFMin) / (numPoints - 1);
+
+    for (let i = 0; i < numPoints; i++) {
+      const freq = Math.pow(10, logFMin + i * logStep);
+      frequencies.push(freq);
+
+      // Calculate normalized frequency (omega)
+      const omega = 2 * Math.PI * freq / sampleRate;
+
+      // Calculate complex response by cascading all biquad sections
+      let realPart = 1.0;
+      let imagPart = 0.0;
+
+      for (const section of filterState.sections) {
+        // Calculate frequency response of this biquad section
+        // H(z) = (b0 + b1*z^-1 + b2*z^-2) / (1 + a1*z^-1 + a2*z^-2)
+        // where z = e^(j*omega)
+
+        const cos_w = Math.cos(omega);
+        const sin_w = Math.sin(omega);
+        const cos_2w = Math.cos(2 * omega);
+        const sin_2w = Math.sin(2 * omega);
+
+        // Numerator: b0 + b1*e^(-j*omega) + b2*e^(-j*2*omega)
+        const numReal = section.b0 + section.b1 * cos_w + section.b2 * cos_2w;
+        const numImag = -section.b1 * sin_w - section.b2 * sin_2w;
+
+        // Denominator: 1 + a1*e^(-j*omega) + a2*e^(-j*2*omega)
+        const denReal = 1 + section.a1 * cos_w + section.a2 * cos_2w;
+        const denImag = -section.a1 * sin_w - section.a2 * sin_2w;
+
+        // Complex division: (numReal + j*numImag) / (denReal + j*denImag)
+        const denMagSq = denReal * denReal + denImag * denImag;
+        const sectionReal = (numReal * denReal + numImag * denImag) / denMagSq;
+        const sectionImag = (numImag * denReal - numReal * denImag) / denMagSq;
+
+        // Multiply cascaded response by this section's response
+        const newReal = realPart * sectionReal - imagPart * sectionImag;
+        const newImag = realPart * sectionImag + imagPart * sectionReal;
+        realPart = newReal;
+        imagPart = newImag;
+      }
+
+      // Calculate magnitude in dB
+      const magnitude = Math.sqrt(realPart * realPart + imagPart * imagPart);
+      magnitudeDB.push(20 * Math.log10(magnitude + 1e-10)); // Add small value to avoid log(0)
+
+      // Calculate phase in radians
+      const phase = Math.atan2(imagPart, realPart);
+      phaseRadians.push(phase);
+    }
+
+    return {
+      frequencies,
+      magnitudeDB,
+      phaseRadians,
+    };
+  }
+
+  /**
    * Get metadata information for all bands
    * @returns Array of BandInfo containing metadata for each band
    */
@@ -388,6 +496,16 @@ export class Decimator {
       decimationFactor: band.decimationFactor,
       cumulativeDecimationFactor: this.getCumulativeDecimationFactor(index),
       effectiveSampleRate: this.config.sampleRate / this.getCumulativeDecimationFactor(index),
+      getFilterResponse: (numPoints?: number, fMin?: number, fMax?: number) => {
+        const effectiveSampleRate = this.config.sampleRate / this.getCumulativeDecimationFactor(index);
+        return this.calculateFilterResponse(
+          band.filterState,
+          effectiveSampleRate,
+          numPoints,
+          fMin ?? 1,
+          fMax ?? effectiveSampleRate / 2
+        );
+      },
     }));
   }
 
@@ -402,11 +520,22 @@ export class Decimator {
     }
 
     const band = this.bands[bandIndex];
+    const effectiveSampleRate = this.config.sampleRate / this.getCumulativeDecimationFactor(bandIndex);
+
     return {
       cutoffFrequency: band.cutoffFrequency,
       decimationFactor: band.decimationFactor,
       cumulativeDecimationFactor: this.getCumulativeDecimationFactor(bandIndex),
-      effectiveSampleRate: this.config.sampleRate / this.getCumulativeDecimationFactor(bandIndex),
+      effectiveSampleRate: effectiveSampleRate,
+      getFilterResponse: (numPoints?: number, fMin?: number, fMax?: number) => {
+        return this.calculateFilterResponse(
+          band.filterState,
+          effectiveSampleRate,
+          numPoints,
+          fMin ?? 1,
+          fMax ?? effectiveSampleRate / 2
+        );
+      },
     };
   }
 }

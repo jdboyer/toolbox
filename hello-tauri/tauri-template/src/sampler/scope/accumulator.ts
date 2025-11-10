@@ -1,5 +1,5 @@
 import { RingBuffer } from "./ring-buffer.ts";
-import { Decimator, DecimatorConfig, BandInfo } from "./decimator.ts";
+import { Decimator, DecimatorConfig, BandInfo, FilterResponse } from "./decimator.ts";
 import { frequencyToNote } from "./note-utils.ts"
 
 /**
@@ -422,6 +422,12 @@ export class Accumulator {
       effectiveSampleRate: this.sampleRate,
       kernelFrequencies: new Float32Array(kernelFrequencies[0]),
       maxKernelSize: maxKernelSizes[0],
+      getFilterResponse: (numPoints?: number, _fMin?: number, _fMax?: number) => {
+        const frequencies: number[] = Array(numPoints).fill(0);
+        const magnitudeDB: number[] = Array(numPoints).fill(0);
+        const phaseRadians: number[] = Array(numPoints).fill(1);
+        return { frequencies, magnitudeDB, phaseRadians };
+      },
     });
 
     // Iterate through bandsInfo and add each band's settings
