@@ -399,18 +399,19 @@ export class Accumulator {
 
     // Add dummy BandSettings for non-decimated band (band 0)
     result.push({
-      cutoffFrequency: 0,
+      cutoffFrequency: -1,
       decimationFactor: 1,
       cumulativeDecimationFactor: 1,
       effectiveSampleRate: this.sampleRate,
-      kernelFrequencies: new Float32Array(0), // TODO: Calculate actual kernel frequencies
+      kernelFrequencies: new Float32Array(kernelFrequencies[0]),
     });
 
     // Iterate through bandsInfo and add each band's settings
-    for (const bandInfo of bandsInfo) {
+    for (let i = 0; i < bandsInfo.length; i++) {
+      const bandInfo = bandsInfo[i];
       result.push({
         ...bandInfo,
-        kernelFrequencies: new Float32Array(0), // TODO: Calculate actual kernel frequencies
+        kernelFrequencies: new Float32Array(kernelFrequencies[i + 1]),
       });
     }
 
