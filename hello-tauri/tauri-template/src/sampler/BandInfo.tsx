@@ -205,6 +205,40 @@ export function BandInfo() {
       ctx.font = "bold 11px monospace";
       ctx.fillText(`Band ${index}`, x + 3, 15);
     });
+
+    // Draw kernel frequency range indicators at -6 dB
+    const kernelIndicatorY = magToY(-6);
+    bandSettings.forEach((band, index) => {
+      if (band.kernelFrequencies.length === 0) return;
+
+      const color = colors[index % colors.length];
+      const firstKernelFreq = band.kernelFrequencies[0];
+      const lastKernelFreq = band.kernelFrequencies[band.kernelFrequencies.length - 1];
+
+      const x1 = freqToX(firstKernelFreq);
+      const x2 = freqToX(lastKernelFreq);
+
+      // Draw thick line segment
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x1, kernelIndicatorY);
+      ctx.lineTo(x2, kernelIndicatorY);
+      ctx.stroke();
+
+      // Draw end caps
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x1, kernelIndicatorY - 4);
+      ctx.lineTo(x1, kernelIndicatorY + 4);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(x2, kernelIndicatorY - 4);
+      ctx.lineTo(x2, kernelIndicatorY + 4);
+      ctx.stroke();
+    });
   };
 
   const renderTooltip = (chartX: number, chartY: number) => {
