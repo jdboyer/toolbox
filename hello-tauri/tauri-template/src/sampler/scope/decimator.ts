@@ -22,6 +22,10 @@ export interface DecimatorConfig {
    * Maximum block size in samples
    */
   maxBlockSize: number;
+  /**
+   * Batch factor - determines hop length (blockSize must be divisible by batchFactor)
+   */
+  batchFactor: number;
 }
 
 /**
@@ -136,9 +140,35 @@ export class Decimator {
       // Calculate how much we can decimate while staying above Nyquist
       const maxDecimation = Math.floor(currentSampleRate / (nyquistFreq * 1.1)); // 1.1 for safety margin
       //const decimationFactor = Math.max(1, Math.min(maxDecimation, 4)); // Limit to 4x per stage
-      const decimationFactor = Math.max(1, maxDecimation);
-      // TODO constrain decimation factor
+      let decimationFactor = Math.max(1, maxDecimation);
+
+      // Constrain decimation factor to valid values
       // blockSize / (batchFactor * n) = decimationFactor
+      // Solving for n: n = blockSize / (batchFactor * decimationFactor)
+      // n must be a positive non-zero integer
+      const blockSize = this.config.maxBlockSize;
+      const batchFactor = this.config.batchFactor;
+
+      // Check if current decimationFactor gives a valid integer n
+      let n = blockSize / (batchFactor * decimationFactor);
+      if (!Number.isInteger(n) || n <= 0) {
+        // Find the nearest smaller valid decimation factor
+        // Valid decimation factors are: blockSize / (batchFactor * n) where n is a positive integer
+        // We want the largest valid decimationFactor <= current decimationFactor
+        for (let testN = Math.floor(n); testN >= 1; testN--) {
+          const validDecimationFactor = blockSize / (batchFactor * testN);
+          if (Number.isInteger(validDecimationFactor) && validDecimationFactor <= decimationFactor) {
+            decimationFactor = validDecimationFactor;
+            n = testN;
+            break;
+          }
+        }
+
+        // If no valid factor found, use 1 (safest fallback)
+        if (!Number.isInteger(n) || n <= 0) {
+          decimationFactor = 1;
+        }
+      }
 
 
       // Design elliptic filter for this band

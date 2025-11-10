@@ -65,9 +65,10 @@ export class Accumulator {
    * @param sampleRate Sample rate in Hz
    * @param fMin Minimum frequency for decimator (Hz)
    * @param fMax Maximum frequency for decimator (Hz)
+   * @param batchFactor Batch factor for hop length calculation
    * @param processCallback Optional callback invoked when a block is prepared
    */
-  constructor(device: GPUDevice, blockSize: number, maxBlocks: number, binsPerOctave: number, sampleRate: number, fMin: number, fMax: number, processCallback?: ProcessCallback) {
+  constructor(device: GPUDevice, blockSize: number, maxBlocks: number, binsPerOctave: number, sampleRate: number, fMin: number, fMax: number, batchFactor: number, processCallback?: ProcessCallback) {
     this.device = device;
     this.blockSize = blockSize;
     this.maxBlocks = maxBlocks;
@@ -97,6 +98,7 @@ export class Accumulator {
       fMax,
       sampleRate,
       maxBlockSize: blockSize,
+      batchFactor,
     });
     this.bandSettings = this.calculateBandSettings();
     //this.minWindowSize = this.calculateMaxKernelSize();

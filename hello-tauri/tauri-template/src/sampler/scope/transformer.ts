@@ -100,6 +100,7 @@ export class Transformer {
       this.config.sampleRate,
       this.config.fMin,
       this.config.fMax,
+      this.batchFactor,
       (inputOffset: number) => this.processTransform(inputOffset)
     );
 
