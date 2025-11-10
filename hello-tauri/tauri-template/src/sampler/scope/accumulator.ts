@@ -394,7 +394,7 @@ export class Accumulator {
       // Determine which band to assign this kernel to
       // Is this kernal below the cutoff frequency?
       // Assume we'll advance one band at a time
-      while (currentBandIndex >= 0 && frequency * 1.1 > bandsInfo[currentBandIndex].cutoffFrequency) 
+      while (currentBandIndex >= 0 && frequency * 1.3 > bandsInfo[currentBandIndex].cutoffFrequency) 
       {
         currentBandIndex -= 1;
       }

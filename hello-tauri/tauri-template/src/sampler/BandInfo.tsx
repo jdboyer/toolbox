@@ -277,6 +277,7 @@ export function BandInfo() {
             <Table.Th>Decimation Factor</Table.Th>
             <Table.Th>Cumulative Factor</Table.Th>
             <Table.Th>Effective Sample Rate (Hz)</Table.Th>
+            <Table.Th>Max Kernel Size</Table.Th>
             <Table.Th>Kernel Frequencies</Table.Th>
           </Table.Tr>
         </Table.Thead>
@@ -304,6 +305,7 @@ export function BandInfo() {
                 <Table.Td>{band.decimationFactor}</Table.Td>
                 <Table.Td>{band.cumulativeDecimationFactor}</Table.Td>
                 <Table.Td>{band.effectiveSampleRate.toFixed(2)}</Table.Td>
+                <Table.Td>{band.maxKernelSize}</Table.Td>
                 <Table.Td>{kernelInfo}</Table.Td>
               </Table.Tr>
             );

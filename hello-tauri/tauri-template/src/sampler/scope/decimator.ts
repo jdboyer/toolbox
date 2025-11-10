@@ -169,6 +169,9 @@ export class Decimator {
 
       // Calculate how much we can decimate while staying above Nyquist
       const maxDecimation = Math.floor(currentSampleRate / (nyquistFreq * 1.1)); // 1.1 for safety margin
+      if (maxDecimation < 2) {
+        console.error("max decimation");
+      }
       //const decimationFactor = Math.max(1, Math.min(maxDecimation, 4)); // Limit to 4x per stage
       let decimationFactor = Math.max(1, maxDecimation);
 
