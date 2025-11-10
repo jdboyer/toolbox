@@ -1,7 +1,7 @@
 import { Text, Stack, Table } from "@mantine/core";
 import { useEffect, useState } from "react";
-import AnalyzerService from "./analyzer-service.ts";
-import type { BandSettings } from "./accumulator.ts";
+import AnalyzerService from "./scope/analyzer-service.ts";
+import type { BandSettings } from "./scope/accumulator.ts";
 
 /**
  * BandInfo - Displays information about decimator bands

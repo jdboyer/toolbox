@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { TimeDomainView } from "./TimeDomainView.tsx";
 // import { FrequencyDomainView } from "./FrequencyDomainView";
 import { ScopeView } from "./scope/ScopeView.tsx";
-import { BandInfo } from "./scope/BandInfo.tsx";
+import { BandInfo } from "./BandInfo.tsx";
 import AnalyzerService from "./scope/analyzer-service.ts";
 
 interface WavData {
