@@ -298,7 +298,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
       // Log first few writes
       if (this.totalFramesWritten < 100) {
-        console.log(`Spectrogram.updateTextures: writing ${framesToCopy} frames to X=${textureStartX}, totalWritten=${this.totalFramesWritten}, writePosition=${this.writePosition}`);
+        //console.log(`Spectrogram.updateTextures: writing ${framesToCopy} frames to X=${textureStartX}, totalWritten=${this.totalFramesWritten}, writePosition=${this.writePosition}`);
       }
 
       // Create parameters buffer

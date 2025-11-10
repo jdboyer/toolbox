@@ -126,9 +126,10 @@ export class Decimator {
     // the "zero" band will always handle the top portion of the range and is not part of the decimator, so +1 here:
     const logStep = (logFMax - logFMin) / (this.config.numBands + 1); 
 
-    console.error("Test...");
+    //console.error("Test...");
     // Create bands with exponentially spaced cutoff frequencies
-    for (let i = 0; i < this.config.numBands; i++) {
+    //for (let i = 0; i < this.config.numBands; i++) {
+    for (let i = this.config.numBands - 1; i >= 0; i--) {
       const logCutoff = logFMin + (i + 1) * logStep;
       const cutoffFrequency = Math.pow(2, logCutoff);
 
@@ -136,7 +137,9 @@ export class Decimator {
       // Each band's Nyquist frequency is 2x the cutoff frequency
       // We want to decimate so the new sample rate is just above 2x cutoff
       const nyquistFreq = cutoffFrequency * 2;
-      const currentSampleRate = i === 0 ? this.config.sampleRate : this.config.sampleRate / this.getCumulativeDecimationFactor(i - 1);
+      const bandIndex = this.config.numBands - 1 - i;
+      const currentSampleRate = this.config.sampleRate / this.getCumulativeDecimationFactor(bandIndex);
+      //const currentSampleRate = i === 0 ? this.config.sampleRate : this.config.sampleRate / this.getCumulativeDecimationFactor(i - 1);
 
       // Calculate how much we can decimate while staying above Nyquist
       const maxDecimation = Math.floor(currentSampleRate / (nyquistFreq * 1.1)); // 1.1 for safety margin
@@ -185,6 +188,7 @@ export class Decimator {
         filterState,
       });
     }
+
   }
 
   /**
