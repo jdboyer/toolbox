@@ -73,7 +73,7 @@ export interface BandInfo {
    * @param fMax Maximum frequency in Hz (default: effectiveSampleRate / 2)
    * @returns FilterResponse containing frequency, magnitude, and phase data
    */
-  getFilterResponse: (numPoints?: number, fMin?: number, fMax?: number) => FilterResponse;
+  getFilterResponse: (numPoints: number, fMin?: number, fMax?: number) => FilterResponse;
 }
 
 interface DecimatorBand {

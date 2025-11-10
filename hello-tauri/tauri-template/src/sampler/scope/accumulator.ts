@@ -422,10 +422,18 @@ export class Accumulator {
       effectiveSampleRate: this.sampleRate,
       kernelFrequencies: new Float32Array(kernelFrequencies[0]),
       maxKernelSize: maxKernelSizes[0],
-      getFilterResponse: (numPoints?: number, _fMin?: number, _fMax?: number) => {
-        const frequencies: number[] = Array(numPoints).fill(0);
+      getFilterResponse: (numPoints: number, _fMin?: number, _fMax?: number) => {
+        const frequencies: number[] = [];
         const magnitudeDB: number[] = Array(numPoints).fill(0);
         const phaseRadians: number[] = Array(numPoints).fill(1);
+
+        const logFMin = Math.log10(fMin);
+        const logFMax = Math.log10(fMax);
+        const logStep = (logFMax - logFMin) / (numPoints - 1);
+        for (let i = 0; i < numPoints; i++) {
+          const freq = Math.pow(10, logFMin + i * logStep);
+          frequencies.push(freq);
+        }
         return { frequencies, magnitudeDB, phaseRadians };
       },
     });
