@@ -427,50 +427,5 @@ export class Accumulator {
     return result;
   }
 
-  calculateMaxKernelSize(): number {
-    const bandsInfo = this.decimator.getBandsInfo();
-    let maxKernalSize = 1;
 
-    //const fNyquist = this.sampleRate / 2;
-    const fMax = 20000.0;
-    const fMin = this.fMin;
-
-    //const logFMin = Math.log2(fMin);
-    //const logFNyquest = Math.log2(fNyquist);
-
-    const octaveCount = Math.log2(fMax / fMin);
-    const kernalCount = Math.floor(octaveCount * this.binsPerOctave);
-
-
-    let currentBandIndex = bandsInfo.length - 1; // start at the lowest band
-
-    for (let k = 0; k < kernalCount; k++) {
-      const frequency = fMin * Math.pow(2, k / this.binsPerOctave);
-      // Determine which band to assign this kernal to
-      // Is this kernal below the cutoff frequency?
-      // Assume we'll advance one band at a time
-      while (currentBandIndex >= 0 && frequency * 1.1 > bandsInfo[currentBandIndex].cutoffFrequency) 
-      {
-        currentBandIndex -= 1;
-      }
-      // non-decimated band
-      let bandSampleRate = this.sampleRate;
-      if (currentBandIndex >= 0) {
-        // decimated band
-        bandSampleRate = bandsInfo[currentBandIndex].effectiveSampleRate;
-      }
-      const Q = 1 / (Math.pow(2, 1 / this.binsPerOctave) - 1);
-      //const frequency = this.config.fMin; // * Math.pow(2, k / this.config.binsPerOctave);
-      const windowLength = Math.ceil((Q * bandSampleRate) / frequency);
-      maxKernalSize = Math.max(maxKernalSize, windowLength);
-    }
-
-    return maxKernalSize;
-    //for (let k = 0; k < this.numBins; k++) {
-    // Calculate center frequency for this bin
-    // Calculate window length based on Q factor
-    // Make sure window length is reasonable
-    //const clampedLength = Math.min(Math.max(windowLength, 32), 16384);
-    //return clampedLength;
-  }
 }
