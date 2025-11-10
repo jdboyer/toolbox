@@ -513,7 +513,7 @@ export class Decimator {
       cumulativeDecimationFactor: this.getCumulativeDecimationFactor(index),
       effectiveSampleRate: this.config.sampleRate / this.getCumulativeDecimationFactor(index),
       getFilterResponse: (numPoints?: number, fMin?: number, fMax?: number) => {
-        const effectiveSampleRate = this.config.sampleRate / this.getCumulativeDecimationFactor(index);
+        const effectiveSampleRate = this.config.sampleRate / this.getCumulativeDecimationFactor(index - 1);
         return this.calculateFilterResponse(
           band.filterState,
           effectiveSampleRate,
@@ -525,33 +525,5 @@ export class Decimator {
     }));
   }
 
-  /**
-   * Get metadata for a specific band
-   * @param bandIndex Index of the band
-   * @returns BandInfo for the specified band, or null if index is out of range
-   */
-  getBandInfo(bandIndex: number): BandInfo | null {
-    if (bandIndex < 0 || bandIndex >= this.bands.length) {
-      return null;
-    }
 
-    const band = this.bands[bandIndex];
-    const effectiveSampleRate = this.config.sampleRate / this.getCumulativeDecimationFactor(bandIndex);
-
-    return {
-      cutoffFrequency: band.cutoffFrequency,
-      decimationFactor: band.decimationFactor,
-      cumulativeDecimationFactor: this.getCumulativeDecimationFactor(bandIndex),
-      effectiveSampleRate: effectiveSampleRate,
-      getFilterResponse: (numPoints?: number, fMin?: number, fMax?: number) => {
-        return this.calculateFilterResponse(
-          band.filterState,
-          effectiveSampleRate,
-          numPoints,
-          fMin ?? 1,
-          fMax ?? effectiveSampleRate / 2
-        );
-      },
-    };
-  }
 }
