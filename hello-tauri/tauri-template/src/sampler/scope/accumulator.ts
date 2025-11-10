@@ -41,6 +41,7 @@ export class Accumulator {
   private minWindowSize: number;
   private lastPreparedBlockIndex: number = -1;
   private fMin: number;
+  private fMax: number;
   private sampleRate: number;
   private binsPerOctave: number;
   //private waveletWindowSize: number = 1;
@@ -74,6 +75,7 @@ export class Accumulator {
     this.maxBlocks = maxBlocks;
     this.minWindowSize = 0;
     this.fMin = fMin;
+    this.fMax = fMax;
     this.sampleRate = sampleRate;
     this.binsPerOctave = binsPerOctave;
     this.processCallback = processCallback;
@@ -93,7 +95,7 @@ export class Accumulator {
 
     // Initialize decimator with system configuration
     this.decimator = new Decimator({
-      numBands: 1,
+      numBands: 4,
       fMin,
       fMax,
       sampleRate,
@@ -381,7 +383,7 @@ export class Accumulator {
     const maxKernelSizes: number[] = new Array(bandsInfo.length + 1).fill(0);
 
     let maxKernalSize = 1;
-    const fMax = 20000.0;
+    const fMax = this.fMax;
     const fMin = this.fMin;
     const octaveCount = Math.log2(fMax / fMin);
     const kernalCount = Math.floor(octaveCount * this.binsPerOctave);

@@ -32,11 +32,12 @@ function midiToFrequency(midiNote: number): number {
  * Get default frequency range (C3 to C8)
  */
 function getDefaultFrequencyRange(): { fMin: number; fMax: number } {
-  const C3 = 48; // MIDI note number for C3
-  const C8 = 96; // MIDI note number for C8
+  //const C3 = 48; // MIDI note number for C3
+  //const C8 = 96; // MIDI note number for C8
+  const A1 = 33; // MIDI note number for C3
   return {
-    fMin: midiToFrequency(C3),
-    fMax: midiToFrequency(C8),
+    fMin: midiToFrequency(A1),
+    fMax: 20000,
   };
 }
 /**

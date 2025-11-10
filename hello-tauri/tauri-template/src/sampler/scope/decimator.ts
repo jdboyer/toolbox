@@ -126,6 +126,7 @@ export class Decimator {
     // the "zero" band will always handle the top portion of the range and is not part of the decimator, so +1 here:
     const logStep = (logFMax - logFMin) / (this.config.numBands + 1); 
 
+    console.error("Test...");
     // Create bands with exponentially spaced cutoff frequencies
     for (let i = 0; i < this.config.numBands; i++) {
       const logCutoff = logFMin + (i + 1) * logStep;
@@ -151,15 +152,18 @@ export class Decimator {
 
       // Check if current decimationFactor gives a valid integer n
       let n = blockSize / (batchFactor * decimationFactor);
+      console.log(`n: ${n}, decimation: ${decimationFactor}`)
       if (!Number.isInteger(n) || n <= 0) {
+        console.error("Invalid decimation factor, clamping...");
         // Find the nearest smaller valid decimation factor
         // Valid decimation factors are: blockSize / (batchFactor * n) where n is a positive integer
         // We want the largest valid decimationFactor <= current decimationFactor
-        for (let testN = Math.floor(n); testN >= 1; testN--) {
+        for (let testN = Math.ceil(n); testN <= (blockSize / batchFactor); testN++) {
           const validDecimationFactor = blockSize / (batchFactor * testN);
           if (Number.isInteger(validDecimationFactor) && validDecimationFactor <= decimationFactor) {
             decimationFactor = validDecimationFactor;
             n = testN;
+            console.log(`after: n: ${n}, decimation: ${decimationFactor}`)
             break;
           }
         }
