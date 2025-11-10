@@ -49,6 +49,9 @@ export class Accumulator {
   // Decimator for multi-band processing
   private decimator: Decimator;
 
+  // Band settings with kernel frequencies
+  private bandSettings: BandSettings[];
+
   // Callback for processing blocks
   private processCallback?: ProcessCallback;
 
@@ -94,7 +97,7 @@ export class Accumulator {
       sampleRate,
       maxBlockSize: blockSize,
     });
-    this.calculateBandSettings();
+    this.bandSettings = this.calculateBandSettings();
     //this.minWindowSize = this.calculateMaxKernelSize();
   }
 
@@ -338,6 +341,14 @@ export class Accumulator {
    */
   getDecimator(): Decimator {
     return this.decimator;
+  }
+
+  /**
+   * Get the band settings with kernel frequencies
+   * @returns Array of BandSettings containing band info and kernel frequencies
+   */
+  getBandSettings(): BandSettings[] {
+    return this.bandSettings;
   }
 
   /**
