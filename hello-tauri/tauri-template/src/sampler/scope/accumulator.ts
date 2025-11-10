@@ -16,6 +16,7 @@ export interface BandSettings extends BandInfo {
    * Array of kernel frequencies assigned to this band
    */
   kernelFrequencies: Float32Array;
+  maxKernelSize: number;
 }
 
 /**
@@ -375,6 +376,7 @@ export class Accumulator {
     const result: BandSettings[] = [];
 
     const kernelFrequencies: number[][] = new Array(bandsInfo.length + 1).fill([]).map(() => []);
+    const maxKernelSizes: number[] = new Array(bandsInfo.length + 1).fill(0);
 
     let maxKernalSize = 1;
     const fMax = 20000.0;
@@ -403,6 +405,7 @@ export class Accumulator {
       const Q = 1 / (Math.pow(2, 1 / this.binsPerOctave) - 1);
       //const frequency = this.config.fMin; // * Math.pow(2, k / this.config.binsPerOctave);
       const windowLength = Math.ceil((Q * bandSampleRate) / frequency);
+      maxKernelSizes[currentBandIndex + 1] = Math.max(maxKernelSizes[currentBandIndex + 1], windowLength)
       maxKernalSize = Math.max(maxKernalSize, windowLength);
     }
     this.minWindowSize = maxKernalSize;
@@ -414,6 +417,7 @@ export class Accumulator {
       cumulativeDecimationFactor: 1,
       effectiveSampleRate: this.sampleRate,
       kernelFrequencies: new Float32Array(kernelFrequencies[0]),
+      maxKernelSize: maxKernelSizes[0],
     });
 
     // Iterate through bandsInfo and add each band's settings
@@ -422,6 +426,7 @@ export class Accumulator {
       result.push({
         ...bandInfo,
         kernelFrequencies: new Float32Array(kernelFrequencies[i + 1]),
+        maxKernelSize: maxKernelSizes[i + 1],
       });
     }
     return result;
