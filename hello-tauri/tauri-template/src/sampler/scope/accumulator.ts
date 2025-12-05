@@ -33,6 +33,7 @@ export class Accumulator {
   private blockSize: number;
   private maxBlocks: number;
   private inputRingBuffer: RingBuffer<Float32Array>;
+  private bandsRingBuffers: RingBuffer<Float32Array>[];
 
   // Output buffer management
   private outputBuffer: GPUBuffer;
@@ -78,6 +79,7 @@ export class Accumulator {
     this.fMax = fMax;
     this.sampleRate = sampleRate;
     this.binsPerOctave = binsPerOctave;
+    this.bandsRingBuffers = [];
     this.processCallback = processCallback;
 
     // Create ring buffer for input samples
@@ -89,7 +91,7 @@ export class Accumulator {
 
     // Create output buffer (4096 * 16 samples = 65536 * 4 bytes)
     this.outputBuffer = this.device.createBuffer({
-      size: this.OUTPUT_BUFFER_SIZE * 4, // Float32 = 4 bytes
+      size: this.OUTPUT_BUFFER_SIZE * 4 * 8, // Float32 = 4 bytes
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
@@ -103,6 +105,10 @@ export class Accumulator {
       batchFactor,
     });
     this.bandSettings = this.calculateBandSettings();
+    for (let i = 1; i < this.bandSettings.length; i++) {
+      const samplesPerBlock = this.blockSize / this.bandSettings[i].cumulativeDecimationFactor;
+      this.bandsRingBuffers.push(new RingBuffer<Float32Array>(maxBlocks, 1, () => new Float32Array(samplesPerBlock)));
+    }
     //this.minWindowSize = this.calculateMaxKernelSize();
   }
 
@@ -186,12 +192,49 @@ export class Accumulator {
       //this.unprocessedBlocks -= blocksToProcess;
   }
 
+
+
+  private writeBlock(blockIndex: number): void {
+    const buffer = this.inputRingBuffer.getBuffer(blockIndex);
+    this.device.queue.writeBuffer(
+      this.outputBuffer,
+      this.outputBufferWriteOffset * 4, // byte offset
+      buffer
+    );
+
+    const bandsInfo = this.decimator.getBandsInfo();
+    let bandOffset = this.OUTPUT_BUFFER_SIZE;
+    for (let i = 0; i < bandsInfo.length; i++) {
+      const buffer = this.bandsRingBuffers[i].getBuffer(blockIndex);
+      const writeOffset = this.outputBufferWriteOffset / bandsInfo[i].cumulativeDecimationFactor;
+      this.device.queue.writeBuffer(
+        this.outputBuffer,
+        (writeOffset + bandOffset) * 4, // byte offset
+        buffer
+      );
+      bandOffset += this.OUTPUT_BUFFER_SIZE / bandsInfo[i].cumulativeDecimationFactor;
+      //currentBuffer.set(output[i],0);
+      //this.bandsRingBuffers[i].advanceBuffer();
+    }
+
+    this.outputBufferWriteOffset += this.blockSize;
+  }
+
   /**
    * Prepare the output buffer with samples from a completed block
    * Handles buffer overflow by resetting and backfilling with previous blocks
    * @param blockIndex Index of the block to prepare
    */
   private prepareOutputBuffer(blockIndex: number): void {
+    let output: Float32Array[] = [];
+    this.decimator.processBlock(this.inputRingBuffer.getBuffer(blockIndex), output);
+    for (let i = 0; i < output.length; i++) {
+      const currentBuffer = this.bandsRingBuffers[i].getCurrentBuffer();
+      currentBuffer.set(output[i],0);
+      this.bandsRingBuffers[i].advanceBuffer();
+    }
+
+    const bandsInfo = this.decimator.getBandsInfo();
     const samplesNeeded = this.blockSize;
 
     // Check if there's enough room in the output buffer
@@ -201,31 +244,34 @@ export class Accumulator {
 
       // Calculate how many previous blocks we need to maintain at least minWindowSize
       const blocksNeeded = Math.ceil(this.minWindowSize / this.blockSize);
-      const startBlockIndex = Math.max(0, blockIndex - blocksNeeded + 1);
+      const startBlockIndex = Math.max(0, blockIndex - blocksNeeded);
+      console.log(`blocks needed: ${blocksNeeded}`)
 
       // Copy previous blocks to ensure we have enough context
       for (let i = startBlockIndex; i < blockIndex; i++) {
-        const buffer = this.inputRingBuffer.getBuffer(i);
-        this.device.queue.writeBuffer(
-          this.outputBuffer,
-          this.outputBufferWriteOffset * 4, // byte offset
-          buffer
-        );
-        this.outputBufferWriteOffset += this.blockSize;
+        this.writeBlock(i);
+        //const buffer = this.inputRingBuffer.getBuffer(i);
+        //this.device.queue.writeBuffer(
+        //  this.outputBuffer,
+          //this.outputBufferWriteOffset * 4, // byte offset
+          //buffer
+        //);
+        //this.outputBufferWriteOffset += this.blockSize;
       }
     }
 
+    this.writeBlock(blockIndex);
     // Copy the current block into the output buffer
-    const buffer = this.inputRingBuffer.getBuffer(blockIndex);
-    this.device.queue.writeBuffer(
-      this.outputBuffer,
-      this.outputBufferWriteOffset * 4, // byte offset
-      buffer
-    );
+    //const buffer = this.inputRingBuffer.getBuffer(blockIndex);
+    //this.device.queue.writeBuffer(
+      //jthis.outputBuffer,
+      //this.outputBufferWriteOffset * 4, // byte offset
+      //buffer
+    //);
 
     // Calculate the input offset for this block before updating write offset
     //const inputOffset = this.outputBufferWriteOffset;
-    this.outputBufferWriteOffset += samplesNeeded;
+    //this.outputBufferWriteOffset += samplesNeeded;
 
     // Invoke the callback if provided, passing the input offset
     //if (this.processCallback) {

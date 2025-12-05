@@ -32,10 +32,12 @@ function midiToFrequency(midiNote: number): number {
  * Get default frequency range (C3 to C8)
  */
 function getDefaultFrequencyRange(): { fMin: number; fMax: number } {
-  //const C3 = 48; // MIDI note number for C3
-  //const C8 = 96; // MIDI note number for C8
+  const C3 = 48; // MIDI note number for C3
+  const C8 = 96; // MIDI note number for C8
   const A1 = 33; // MIDI note number for C3
   return {
+    //fMin: midiToFrequency(C3),
+    //fMax: midiToFrequency(C8),
     fMin: midiToFrequency(A1),
     fMax: 20000,
   };
@@ -89,7 +91,8 @@ export class Transformer {
 
     // Calculate minimum window size for CQT
     //this.minWindowSize = this.calculateMinWindowSize() + hopLength;
-    this.minWindowSize = 512 + hopLength;
+    //this.minWindowSize = 512 + hopLength;
+    this.minWindowSize = this.config.blockSize;
 
     // Create accumulator with minWindowSize for proper buffer management
     // Pass processTransform as callback to be invoked when blocks are ready
@@ -110,8 +113,8 @@ export class Transformer {
     // WaveletTransform now creates and owns its output buffer
     const cqtConfig: CQTConfig = {
       sampleRate: this.config.sampleRate,
-      fMin: this.config.fMin,
-      fMax: this.config.fMax,
+      fMin: this.config.fMin * 4,
+      fMax: this.config.fMax / 4,
       binsPerOctave: this.config.binsPerOctave,
       blockSize: this.config.blockSize,
       batchFactor: this.batchFactor,
